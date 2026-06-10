@@ -283,8 +283,8 @@ describe('tick: gambling', () => {
   })
 
   it('jackpot spins open the upgrade draft and freeze the sim', () => {
-    // luck 90 (below the 100 alarm target): reel chance 75%, jackpot odds ~56%/spin — still routine
-    const s = atMachine(90, 1000)
+    // luck 50: reel chance 55%, jackpot ~30%/spin — and ~16 spins of headroom below the alarm target (90 was only ~4 spins from tripping it)
+    const s = atMachine(50, 1000)
     const rng = createRng(31)
     let guard = 0
     while (s.phase !== 'draft' && guard++ < 2000) tick(s, noInput, rng)

@@ -222,6 +222,8 @@ function updateGambling(state: SimState, rng: Rng): void {
 }
 
 function checkAlarm(state: SimState): void {
+  // dying during the alarm is dying — you don't get the win posthumously
+  if (state.gameOver) return
   if (!state.alarm) {
     if (state.player.luck < CONFIG.win.luckTarget) return
     state.alarm = true
