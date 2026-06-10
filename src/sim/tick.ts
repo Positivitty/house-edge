@@ -17,6 +17,7 @@ export function tick(state: SimState, input: InputState, rng: Rng): SimState {
   fireWeapon(state)
   moveProjectiles(state)
   resolveProjectileHits(state, rng)
+  resolveContactDamage(state, rng)
   return state
 }
 
@@ -105,6 +106,43 @@ function moveProjectiles(state: SimState): void {
     if (pr.ttl <= 0) pr.alive = false
   }
   state.projectiles = state.projectiles.filter((pr) => pr.alive)
+}
+
+function resolveContactDamage(state: SimState, rng: Rng): void {
+  const p = state.player
+  if (p.iframes > 0) {
+    p.iframes--
+    return
+  }
+  for (const e of state.enemies) {
+    if (!e.alive) continue
+    const d = Math.hypot(e.pos.x - p.pos.x, e.pos.y - p.pos.y)
+    if (d > e.radius + p.radius) continue
+
+    state.events.push({ kind: 'playerHit', pos: { ...p.pos } })
+
+    if (p.hp - e.touchDamage <= 0) {
+      // death save: the most dramatic roll in the game
+      if (p.deathSavesLeft > 0) {
+        const save = resolve('deathSave', p.luck, state.houseEdge, rng)
+        state.events.push({ kind: 'roll', result: save, pos: { ...p.pos } })
+        if (save.success) {
+          p.hp = 1
+          p.deathSavesLeft--
+          p.iframes = CONFIG.player.iframeTicks
+          state.events.push({ kind: 'luckySave', pos: { ...p.pos } })
+          return
+        }
+      }
+      p.hp = 0
+      state.gameOver = true
+      return
+    }
+
+    p.hp -= e.touchDamage
+    p.iframes = CONFIG.player.iframeTicks
+    return // one contact hit per tick is plenty
+  }
 }
 
 function resolveProjectileHits(state: SimState, rng: Rng): void {

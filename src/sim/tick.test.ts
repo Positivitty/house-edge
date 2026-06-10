@@ -141,6 +141,7 @@ describe('tick: combat resolution', () => {
   it('successful hit roll damages and can kill; kill emits chips', () => {
     const s = combatState(1000)
     let guard = 0
+    // guard of 50 also rides out the 30-tick fire cooldown between shots
     while (s.enemies.length > 0 && guard++ < 50) tick(s, noInput, createRng(guard))
     expect(s.enemies.length).toBe(0)
     expect(s.chips).toBeGreaterThanOrEqual(CONFIG.loot.chipsOnLoss)
@@ -158,5 +159,72 @@ describe('tick: combat resolution', () => {
     const rng = createRng(11) // chosen so the first hit roll with this seed is > 5; bump seed if not
     tick(s, noInput, rng)
     expect(s.enemies[0].hp).toBe(10)
+  })
+
+  it('failed crit rolls emit no crit event (only the hit roll event)', () => {
+    const s = combatState(1000)
+    // run one tick; collect roll events; at most one 'crit' event and only if a crit succeeded
+    tick(s, noInput, createRng(8))
+    const rolls = s.events.filter((e) => e.kind === 'roll')
+    const critRolls = rolls.filter((e) => e.kind === 'roll' && e.result.event === 'crit')
+    for (const c of critRolls) {
+      if (c.kind === 'roll') expect(c.result.success).toBe(true)
+    }
+  })
+})
+
+describe('tick: contact damage and death saves', () => {
+  function touchingEnemyState(playerHp: number, luck = 0) {
+    const s = createInitialState()
+    s.spawnTimer = 100_000
+    s.player.hp = playerHp
+    s.player.luck = luck
+    s.enemies.push({
+      id: 70, pos: { x: s.player.pos.x, y: s.player.pos.y }, hp: 1000,
+      speed: 0, radius: CONFIG.enemy.radius,
+      touchDamage: CONFIG.enemy.touchDamage, alive: true,
+    })
+    return s
+  }
+
+  it('touching enemy damages the player and grants iframes', () => {
+    const s = touchingEnemyState(100)
+    tick(s, noInput, createRng(20))
+    expect(s.player.hp).toBe(100 - CONFIG.enemy.touchDamage)
+    expect(s.player.iframes).toBe(CONFIG.player.iframeTicks)
+  })
+
+  it('iframes prevent repeat damage', () => {
+    const s = touchingEnemyState(100)
+    const rng = createRng(20)
+    tick(s, noInput, rng)
+    tick(s, noInput, rng)
+    expect(s.player.hp).toBe(100 - CONFIG.enemy.touchDamage)
+  })
+
+  it('fatal damage with luck 1000 (95% save) survives at 1 hp and spends a death save', () => {
+    const s = touchingEnemyState(5, 1000)
+    tick(s, noInput, createRng(21)) // 95% save chance — if this seed rolls 96+, bump it and comment
+    expect(s.gameOver).toBe(false)
+    expect(s.player.hp).toBe(1)
+    expect(s.player.deathSavesLeft).toBe(CONFIG.player.deathSaves - 1)
+    expect(s.events.some((e) => e.kind === 'luckySave')).toBe(true)
+  })
+
+  it('fatal damage with no death saves left is game over', () => {
+    const s = touchingEnemyState(5, 1000)
+    s.player.deathSavesLeft = 0
+    tick(s, noInput, createRng(21))
+    expect(s.gameOver).toBe(true)
+  })
+
+  it('gameOver freezes the sim', () => {
+    const s = touchingEnemyState(5, 1000)
+    s.player.deathSavesLeft = 0
+    const rng = createRng(21)
+    tick(s, noInput, rng)
+    const t = s.tick
+    tick(s, noInput, rng)
+    expect(s.tick).toBe(t)
   })
 })
