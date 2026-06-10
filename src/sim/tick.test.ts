@@ -283,7 +283,8 @@ describe('tick: gambling', () => {
   })
 
   it('jackpot spins open the upgrade draft and freeze the sim', () => {
-    const s = atMachine(1000, 1000) // 95% reel chance: jackpots are routine
+    // luck 90 (below the 100 alarm target): reel chance 75%, jackpot odds ~56%/spin — still routine
+    const s = atMachine(90, 1000)
     const rng = createRng(31)
     let guard = 0
     while (s.phase !== 'draft' && guard++ < 2000) tick(s, noInput, rng)
@@ -364,5 +365,47 @@ describe('tick: heat and guards', () => {
     const rng = createRng(44)
     for (let i = 0; i < 3600; i++) tick(s, noInput, rng) // one minute
     expect(s.houseEdge).toBeCloseTo(CONFIG.houseEdge.perMinute, 0)
+  })
+})
+
+describe('tick: break the bank', () => {
+  it('reaching the luck target trips the alarm: machines die, heat pins at 100', () => {
+    const s = createInitialState()
+    s.player.luck = CONFIG.win.luckTarget
+    tick(s, noInput, createRng(50))
+    expect(s.alarm).toBe(true)
+    expect(s.alarmTicksLeft).toBe(CONFIG.win.alarmTicks - 1)
+    expect(s.machines.every((m) => m.spinsLeft === 0)).toBe(true)
+    expect(s.events.some((e) => e.kind === 'alarm')).toBe(true)
+    tick(s, noInput, createRng(50))
+    expect(s.heat).toBe(100)
+  })
+
+  it('surviving the alarm wins the run (and the sim keeps running for endless)', () => {
+    const s = createInitialState()
+    s.alarm = true
+    s.alarmTicksLeft = 2
+    const rng = createRng(51)
+    tick(s, noInput, rng)
+    tick(s, noInput, rng)
+    expect(s.victory).toBe(true)
+    expect(s.events.some((e) => e.kind === 'victory')).toBe(true)
+    const t = s.tick
+    tick(s, noInput, rng)
+    expect(s.tick).toBe(t + 1) // endless: not frozen
+  })
+
+  it('dying during the alarm is still game over', () => {
+    const s = createInitialState()
+    s.alarm = true
+    s.alarmTicksLeft = 10_000
+    s.player.hp = 5
+    s.player.deathSavesLeft = 0
+    s.enemies.push({
+      id: 91, pos: { ...s.player.pos }, hp: 1000, speed: 0,
+      radius: CONFIG.enemy.radius, touchDamage: 10, alive: true,
+    })
+    tick(s, noInput, createRng(52))
+    expect(s.gameOver).toBe(true)
   })
 })

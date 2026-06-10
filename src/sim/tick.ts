@@ -23,6 +23,7 @@ export function tick(state: SimState, input: InputState, rng: Rng): SimState {
   moveProjectiles(state)
   resolveProjectileHits(state, rng)
   resolveContactDamage(state, rng)
+  checkAlarm(state)
   return state
 }
 
@@ -217,6 +218,22 @@ function updateGambling(state: SimState, rng: Rng): void {
   if (jackpot) {
     state.events.push({ kind: 'jackpot', pos: { ...machine.pos } })
     openDraft(state, rng)
+  }
+}
+
+function checkAlarm(state: SimState): void {
+  if (!state.alarm) {
+    if (state.player.luck < CONFIG.win.luckTarget) return
+    state.alarm = true
+    state.alarmTicksLeft = CONFIG.win.alarmTicks
+    for (const m of state.machines) m.spinsLeft = 0 // the house cuts you off
+    state.events.push({ kind: 'alarm' })
+  }
+  if (state.victory) return
+  state.alarmTicksLeft--
+  if (state.alarmTicksLeft <= 0) {
+    state.victory = true
+    state.events.push({ kind: 'victory' })
   }
 }
 
