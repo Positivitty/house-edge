@@ -95,6 +95,9 @@ export class Renderer {
         } else if (ev.kind === 'kill') {
           this.addPopup(`+${ev.chips}`, ev.pos.x, ev.pos.y - 16, 0xffd700, 16)
         }
+        // 'playerHit' and 'luckySave' events are intentionally not rendered here —
+        // deferred to the juice pass in a later milestone; the deathSave 'roll' event
+        // already produces the LUCKY!/BUST popup above.
       }
       this.lastConsumedTick = state.tick
     }
