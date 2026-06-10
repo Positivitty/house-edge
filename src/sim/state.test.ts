@@ -5,12 +5,12 @@ import { CONFIG } from './config'
 describe('createInitialState', () => {
   it('starts the player centered with config stats and no entities', () => {
     const s = createInitialState()
-    expect(s.player.pos).toEqual({ x: CONFIG.arena.w / 2, y: CONFIG.arena.h / 2 })
+    expect(s.player.pos).toEqual({ x: CONFIG.world.w / 2, y: CONFIG.world.h / 2 })
     expect(s.player.hp).toBe(CONFIG.player.hp)
     expect(s.player.deathSavesLeft).toBe(CONFIG.player.deathSaves)
     expect(s.enemies).toEqual([])
     expect(s.projectiles).toEqual([])
-    expect(s.chips).toBe(0)
+    expect(s.chips).toBe(30)
     expect(s.gameOver).toBe(false)
     expect(s.tick).toBe(0)
   })
@@ -22,5 +22,19 @@ describe('createInitialState', () => {
       cooldownTicks: CONFIG.weapon.cooldownTicks,
       critMultiplier: CONFIG.weapon.critMultiplier,
     })
+  })
+
+  it('lays out machines deterministically with one near spawn', () => {
+    const a = createInitialState()
+    const b = createInitialState()
+    expect(a.machines).toEqual(b.machines)
+    expect(a.machines.length).toBe(CONFIG.machines.count)
+    const first = a.machines[0]
+    const d = Math.hypot(first.pos.x - a.player.pos.x, first.pos.y - a.player.pos.y)
+    expect(d).toBeLessThan(300)
+    expect(d).toBeGreaterThan(CONFIG.machines.interactRadius) // must walk to it
+    expect(a.phase).toBe('combat')
+    expect(a.heat).toBe(0)
+    expect(a.victory).toBe(false)
   })
 })

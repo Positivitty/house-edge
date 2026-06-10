@@ -42,17 +42,6 @@ describe('tick: player movement', () => {
 })
 
 describe('tick: enemies', () => {
-  it('spawns an enemy at the arena edge when the spawn timer elapses', () => {
-    const s = createInitialState()
-    const rng = createRng(2)
-    for (let i = 0; i < CONFIG.enemy.spawnIntervalTicks; i++) tick(s, noInput, rng)
-    expect(s.enemies.length).toBe(1)
-    const e = s.enemies[0]
-    const onEdge =
-      e.pos.x === 0 || e.pos.x === CONFIG.arena.w || e.pos.y === 0 || e.pos.y === CONFIG.arena.h
-    expect(onEdge).toBe(true)
-  })
-
   it('enemies move toward the player', () => {
     const s = createInitialState()
     s.enemies.push({

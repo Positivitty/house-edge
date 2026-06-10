@@ -42,12 +42,39 @@ export interface Projectile {
   alive: boolean
 }
 
+export type Phase = 'combat' | 'draft'
+
+export type Rarity = 'common' | 'rare' | 'jackpot'
+
+export interface ReelSlot {
+  upgradeId: string
+  rarity: Rarity
+}
+
+export interface DraftState {
+  reels: ReelSlot[]
+  rerollCost: number
+  version: number // bumped on every reroll so the renderer knows to rebuild
+}
+
+export type DraftCommand = { type: 'pick' | 'reroll'; reel: number }
+
+export interface Machine {
+  id: number
+  pos: Vec2
+  spinsLeft: number // 0 = run cold, permanently
+}
+
 // Per-tick events for the render layer (popups, shake). Cleared each tick.
 export type SimEvent =
   | { kind: 'roll'; result: RollResult; pos: Vec2 }
   | { kind: 'kill'; pos: Vec2; chips: number }
   | { kind: 'playerHit'; pos: Vec2 }
   | { kind: 'luckySave'; pos: Vec2 }
+  | { kind: 'spin'; result: RollResult; luckGained: number; pos: Vec2 }
+  | { kind: 'jackpot'; pos: Vec2 }
+  | { kind: 'alarm' }
+  | { kind: 'victory' }
 
 export interface InputState {
   up: boolean
@@ -62,10 +89,18 @@ export interface SimState {
   enemies: Enemy[]
   projectiles: Projectile[]
   nextId: number
-  wave: number
   houseEdge: number
   chips: number
   spawnTimer: number // ticks until next enemy spawn
   events: SimEvent[]
   gameOver: boolean
+  phase: Phase
+  draft: DraftState | null
+  machines: Machine[]
+  heat: number // 0..100
+  spinTimer: number // ticks until next slot spin while gambling
+  gamblingMachineId: number | null
+  alarm: boolean
+  alarmTicksLeft: number
+  victory: boolean
 }

@@ -1,11 +1,40 @@
 import { CONFIG } from './config'
-import type { SimState } from './types'
+import { createRng } from './rng'
+import type { Rng } from './rng'
+import type { Machine, SimState } from './types'
 
-export function createInitialState(): SimState {
+const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v))
+
+// Deterministic seeded layout: machine 1 guaranteed near spawn, the rest
+// jittered across a grid so every run reads differently but reproducibly.
+function layoutMachines(rng: Rng): Machine[] {
+  const spins = CONFIG.machines.spinsPerMachine
+  const ms: Machine[] = [
+    { id: 1, pos: { x: CONFIG.world.w / 2 + 260, y: CONFIG.world.h / 2 }, spinsLeft: spins },
+  ]
+  const cols = 4
+  const rows = 3
+  let id = 2
+  for (let cy = 0; cy < rows; cy++) {
+    for (let cx = 0; cx < cols; cx++) {
+      if (ms.length >= CONFIG.machines.count) break
+      const x = ((cx + 0.5) / cols) * CONFIG.world.w + rng.int(-220, 220)
+      const y = ((cy + 0.5) / rows) * CONFIG.world.h + rng.int(-220, 220)
+      ms.push({
+        id: id++,
+        pos: { x: clamp(x, 100, CONFIG.world.w - 100), y: clamp(y, 100, CONFIG.world.h - 100) },
+        spinsLeft: spins,
+      })
+    }
+  }
+  return ms
+}
+
+export function createInitialState(rng: Rng = createRng(1)): SimState {
   return {
     tick: 0,
     player: {
-      pos: { x: CONFIG.arena.w / 2, y: CONFIG.arena.h / 2 },
+      pos: { x: CONFIG.world.w / 2, y: CONFIG.world.h / 2 },
       hp: CONFIG.player.hp,
       maxHp: CONFIG.player.hp,
       luck: CONFIG.player.luck,
@@ -23,11 +52,19 @@ export function createInitialState(): SimState {
     enemies: [],
     projectiles: [],
     nextId: 1,
-    wave: 1,
     houseEdge: CONFIG.houseEdge.start,
-    chips: 0,
-    spawnTimer: CONFIG.enemy.spawnIntervalTicks,
+    chips: 30, // seed money — enough for ten spins at the first machine
+    spawnTimer: CONFIG.heat.maxSpawnIntervalTicks,
     events: [],
     gameOver: false,
+    phase: 'combat',
+    draft: null,
+    machines: layoutMachines(rng),
+    heat: 0,
+    spinTimer: CONFIG.machines.spinIntervalTicks,
+    gamblingMachineId: null,
+    alarm: false,
+    alarmTicksLeft: 0,
+    victory: false,
   }
 }

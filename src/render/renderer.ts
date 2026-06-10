@@ -31,8 +31,8 @@ export class Renderer {
 
   async init(): Promise<void> {
     await this.app.init({
-      width: CONFIG.arena.w,
-      height: CONFIG.arena.h,
+      width: CONFIG.screen.w,
+      height: CONFIG.screen.h,
       background: COLORS.felt,
       antialias: true,
     })
@@ -40,7 +40,7 @@ export class Renderer {
 
     // felt table border
     const border = new Graphics()
-      .rect(4, 4, CONFIG.arena.w - 8, CONFIG.arena.h - 8)
+      .rect(4, 4, CONFIG.screen.w - 8, CONFIG.screen.h - 8)
       .stroke({ width: 3, color: COLORS.feltLine })
     this.world.addChild(border, this.enemiesG, this.projectilesG, this.playerG)
     this.app.stage.addChild(this.world)
@@ -73,7 +73,7 @@ export class Renderer {
 
     this.hud.text =
       `HP ${p.hp}/${p.maxHp}   LUCK ${p.luck}   CHIPS ${state.chips}   ` +
-      `SAVES ${p.deathSavesLeft}   WAVE ${state.wave}` +
+      `SAVES ${p.deathSavesLeft}   HEAT ${Math.round(state.heat)}` +
       (state.gameOver ? '   — BUSTED. refresh to re-buy —' : '')
 
     this.drawPopups(state)

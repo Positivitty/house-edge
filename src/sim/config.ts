@@ -1,5 +1,6 @@
 export const CONFIG = {
-  arena: { w: 1280, h: 720 },
+  screen: { w: 1280, h: 720 }, // viewport; the camera follows the player
+  world: { w: 3200, h: 2400 }, // the casino floor
   tickRate: 60,
   player: {
     hp: 100,
@@ -22,8 +23,34 @@ export const CONFIG = {
     speed: 80, // px/sec
     radius: 12,
     touchDamage: 10,
-    spawnIntervalTicks: 90,
   },
+  guards: {
+    ringRadius: 760, // spawn just outside the 1280x720 view
+    hpPerMinute: 0.25, // hp multiplier grows +25%/min
+    speedPerMinute: 0.04,
+    speedCap: 1.9,
+    touchPerMinute: 1.2, // +1.2 touch damage per minute (floored)
+  },
+  heat: {
+    risePerTick: 0.04, // ~42s from 0 to 100 while not gambling
+    drainPerTick: 0.2, // 5x faster drain while gambling
+    spawnThreshold: 10, // below this: no spawns (grace period)
+    minSpawnIntervalTicks: 25, // at heat 100
+    maxSpawnIntervalTicks: 170, // at the threshold
+  },
+  machines: {
+    count: 12,
+    radius: 26, // visual size
+    interactRadius: 70, // stand this close to gamble
+    spinsPerMachine: 10, // then it runs cold, permanently
+    spinIntervalTicks: 45, // a spin every 0.75s while gambling
+    spinCost: 3, // chips per spin
+    luckOnWin: 3,
+    luckOnLoss: 1, // even losing teaches you the machine
+    jackpotLuck: 8, // bonus on jackpot (plus an upgrade draft)
+  },
+  draft: { rerollCost: 5 },
+  win: { luckTarget: 100, alarmTicks: 2700 }, // survive 45s of alarm to beat the house
   loot: { chipsOnWin: 5, chipsOnLoss: 1 },
-  houseEdge: { start: 0 },
+  houseEdge: { start: 0, perMinute: 3 },
 } as const
