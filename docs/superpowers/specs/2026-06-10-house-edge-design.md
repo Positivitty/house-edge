@@ -1,112 +1,122 @@
-# HOUSE EDGE — Design Spec
+# HOUSE EDGE — Design Spec (v2)
 
-**Date:** 2026-06-10
+**Date:** 2026-06-10 (v2 same day — post-M1-playtest pivot)
 **Deadline:** 2026-06-22 (hard — last day of Claude access; final deploy must land by end of June 21)
-**Status:** Approved by Noah 2026-06-10
+**Status:** v2 approved by Noah 2026-06-10
+
+> **v2 changelog:** After playtesting Milestone 1, the discrete-wave + between-wave-shop
+> structure was replaced by **The Floor**: a large explorable casino floor where gambling
+> at slot machines is the source of both luck and safety, and stopping is what summons
+> the guards. Waves are gone; pressure is continuous and driven by HEAT. Milestone 1
+> (luck engine, combat, death saves, determinism, deploy) carries over unchanged.
 
 ## What it is
 
-A browser-based action roguelike (Vampire Survivors-style wave survival) where **luck is the universal resolution mechanic**. Every consequential event — attack hits, crits, death saves, loot rarity, upgrade offers — is a visible roll of the player's LUCK stat against the rising HOUSE EDGE. Casino theme throughout: the arena is a casino floor trying to kill you, currency is chips, upgrades come from a slot machine, minibosses are Pit Bosses.
+A browser-based action roguelike on a big scrolling casino floor. **Luck is the universal
+resolution mechanic** — every hit, crit, death save, loot drop, and slot reel is a visible
+roll of LUCK vs the rising HOUSE EDGE. The twist: **gambling is safety**. While you feed a
+slot machine, the house treats you as a customer — guards back off. The moment you stop,
+you're a problem on the floor and they swarm you, Vampire Survivors-style.
 
-**Goals, in priority order:**
-1. A finished, deployed, playable game by June 22 (portfolio piece — public repo, free GitHub Pages hosting, $0 running cost forever).
-2. Resume-credible engineering: deterministic simulation, statistical balance testing, performance at scale.
-3. Fun enough that people actually play it.
+**Goals, in priority order:** (1) finished, deployed, playable by June 22; (2) resume-credible
+engineering (deterministic sim, statistical balance tests, performance); (3) actually fun.
 
-**Non-goals:** multiplayer, accounts, monetization, mobile-first (desktop browser with keyboard is the target; mobile is out of scope).
+**Non-goals:** multiplayer, accounts, monetization, mobile.
 
-## Core loop
+## Core loop — The Floor
 
-1. Start a run (seeded — daily seed and shareable custom seeds supported).
-2. Survive escalating waves on the casino floor. Weapons auto-fire; the player steers and dodges. Enemies drop **chips**.
-3. Between waves: the **slot machine** deals 3 reels of upgrade options. Pick one. Spend chips to reroll individual reels or hold good ones.
-4. Every 5th wave: a **PIT BOSS** miniboss with a luck-themed gimmick.
-5. Survive wave 20 → **beat the house** (win screen + "cash out" receipt of the run). Endless mode continues after.
-6. Death ends the run with the same itemized casino-receipt results screen.
+1. Start a seeded run at the center of a large casino floor (~3200×2400, camera follows).
+   Slot machines are scattered across it; one sits near spawn.
+2. **Gamble:** stand at a warm machine with chips and it auto-spins — each spin costs chips
+   and converts to LUCK via a visible reel roll. While gambling: guards stop spawning,
+   existing guards retreat, and HEAT drains.
+3. **Jackpot spins deal an upgrade draft:** 3 luck-tilted reels of upgrades, pick one free,
+   reroll a reel for chips. (The slot machine IS the progression system.)
+4. **Machines run cold** after a fixed number of spins — permanently. To keep gambling you
+   must cross the floor to a fresh machine, through whatever is hunting you.
+5. **Stop gambling and HEAT climbs.** Guards spawn on a ring just off-screen and converge;
+   spawn rate scales with HEAT. Guards drop chips when killed — fighting is the only income.
+6. **The triangle:** chips come from fighting, luck and safety come from gambling, survival
+   comes from luck. Greed punishes in both directions.
+7. **Break the bank:** when LUCK reaches the target, the house knows it's losing — alarm.
+   Every machine dies, HEAT pins at maximum, and you must survive the all-out swarm to win.
+   Death ends the run with an itemized casino receipt; victory continues as endless.
 
-## The Luck engine
+## The Luck engine (unchanged from v1)
 
-**One rule resolves everything.** A single resolver function handles every roll in the game:
+One resolver handles every roll: `resolve(event, luck, houseEdge, rng, modifiers) → {event, roll, chance, success}`.
+Events: hit, crit, deathSave, loot, reel. Fairness rules are non-negotiable: rolls are always
+visible (popups / reel displays), always manipulable (upgrades now; charms later), and all
+randomness flows from one seeded RNG. Death saves: fatal damage triggers a dramatic roll —
+survive at 1 HP (limited uses) or bust.
 
-```
-resolve(event, luckStat, houseEdge, modifiers) → outcome
-```
+**HOUSE EDGE now rises with elapsed time** (not waves): a per-minute ramp that makes every
+roll progressively harder. The run is an arms race between your gambling and the clock.
 
-- **Events resolved by rolls:** attack hit/crit, incoming-damage death save, loot drop rarity, slot machine reel quality.
-- **Death save:** fatal damage triggers a dramatic slow-mo dice roll. Success = survive at 1 HP with a screen-filling "LUCKY!". Limited uses per run (uses remaining shown in HUD) so it cannot be farmed.
-- **HOUSE EDGE is the difficulty curve:** rises every wave, making all rolls harder. The run is an arms race — stack luck faster than the house stacks odds.
-- **Hot streak:** consecutive successful rolls build a multiplier. The player chooses to ride it (bigger bonuses, lose it all on one failure) or cash it out (bank a smaller bonus). Push-your-luck on every roll.
+## HEAT
 
-**Fairness rules (non-negotiable — this is what keeps RNG from feeling unfair):**
-1. Rolls are always **visible** — dice/reel popups, never silent coin flips.
-2. Rolls are always **manipulable** — three layers:
-   - **Charms:** passive items that bend rolls (reroll 1s, flat +luck, preview next roll, double-or-nothing).
-   - **Chips:** spendable in the moment to reroll a bad roll.
-   - **Hot streak:** the multiplier decision layer.
-3. All randomness flows from **one seeded RNG** through the one resolver. Charms register as modifiers on the resolver — new charms cannot introduce new RNG paths.
+- Visible meter, 0–100. Rises every tick you are not gambling; drains (faster) while gambling.
+- Below a small threshold: no spawns (grace at run start and after long gambling sessions).
+- Above it: guard spawn interval scales with HEAT (hotter = faster).
+- While gambling: no spawns, and live guards retreat away from you (you can still shoot
+  them in the back — robbing the house's muscle is sanctioned behavior).
+- During the alarm: HEAT is pinned at 100.
 
-## Architecture
+## Slot machines
 
-**Stack:** Vite + TypeScript + PixiJS (WebGL) + Vitest. No server, no APIs, no paid services. Deployed to GitHub Pages via GitHub Action on push to main.
+- ~12 per floor, deterministic seeded placement, one guaranteed near spawn.
+- Auto-play while standing in range with enough chips: each spin costs chips, rolls 'reel':
+  win = +luck (bigger), loss = +luck (smaller — even losing teaches you the machine);
+  a second successful roll on a win = **jackpot**: big luck bonus + an upgrade draft.
+- Each machine has a fixed number of spins, then runs cold permanently (forces traversal).
+- Upgrade draft: sim freezes ('draft' phase), 3 luck-tilted reels (common/rare/jackpot
+  rarities), pick one free (1/2/3), reroll a reel for chips (4/5/6).
 
-**Load-bearing decision — simulation/rendering split:**
+## Architecture (unchanged foundations, new world)
 
-```
-src/
-  sim/      Pure TypeScript game logic. No PixiJS, no DOM, no timers.
-            tick(state, input) → new state. Seeded RNG. The one luck
-            resolver lives here.
-  render/   PixiJS layer drawing sim state. All juice (shake, hit-stop,
-            particles, dice popups, slot reel animation) lives here.
-  content/  Plain data: enemies, weapons, charms, waves, bosses.
-            Adding content = adding objects to lists, no logic changes.
-  ui/       HUD, title screen, slot-machine screen, results receipt.
-```
+Stack: Vite + TypeScript strict + PixiJS v8 + Vitest; client-only; GitHub Pages via Actions.
+Strict sim/render split: `src/sim/` pure TS (tick(state, input, rng), one resolver, seeded
+RNG); `src/render/` PixiJS camera + drawing; `src/content/` data (upgrades; later charms).
+Screen is 1280×720; the world is larger and the camera follows the player. Guards spawn on
+a ring just outside the view, clamped to world bounds. Statistical balance tests and a
+full-sim determinism test (including scripted draft picks) guard every milestone.
 
-**Why:** the sim is unit-testable (including statistical balance tests over thousands of seeded trials), deterministic (daily seeds, shareable seeds, reproducible bug reports), and safe for Claude to extend autonomously. Rendering stays a thin replaceable layer.
+## Content scope (current target)
 
-**Performance plan:** object pooling for enemies/projectiles/particles; spatial hash for collision. Target 60fps with 300+ live entities on a mid-range laptop.
-
-## Content scope
-
-All data-driven and individually cuttable:
-
-- **Enemies — 8 types:** melee chasers, ranged card-throwers, splitting dice blobs, exploding chips, plus faster/tankier variants. Simple chase/shoot AI only.
-- **Pit Bosses — 3:** every 5th wave, each with a luck gimmick (e.g., steals luck on hit; forces double-or-nothing rolls; jams the slot machine).
-- **Weapons — 6:** auto-firing gambling devices (card flurry, roulette beam, dice mortar, chip ricochet, …). Start with one; acquire/upgrade via slot machine.
-- **Charms — 20:** passive roll-benders; the build-variety engine. Examples: Loaded Dice (reroll 1s), Rabbit's Foot (+luck), Card Counter (preview next roll), Cursed Coin (every roll is double-or-nothing).
-- **Arena:** one casino-floor arena. A second arena is a stretch goal.
-- **Meta:** local-storage stats and best runs. Unlockable characters = stretch goal, not promised.
+- **Guards:** one chaser type, stats scale with elapsed time. (Variety + Pit Bosses: later.)
+- **Weapons:** the auto-fire sidearm; more weapons via drafts later.
+- **Upgrades:** ~10 across common/rare/jackpot (luck, speed, hp, damage, fire rate, crit,
+  death saves). Charms (roll modifiers) are a later milestone.
+- **Floor:** one floor layout per run, seeded machine placement. Multiple floors: stretch.
+- **Meta:** local stats/best runs. Daily seed UI: later milestone.
 
 ## Presentation
 
-- **Visuals:** fully procedural neon-on-felt casino palette — chips, cards, dice, glow. No external asset files.
-- **Juice:** screen shake, hit-stop on crits, particle bursts on rolls, slot reels with mechanical clunk, slow-mo death saves.
-- **Audio:** ZzFX procedurally generated SFX. No audio files, no licensing, $0.
-- **Results screen:** itemized casino receipt (rolls won/lost, biggest streak, chips earned, cause of death).
+Neon-on-felt procedural visuals (no asset files): gold player chip, red guards, gold/gray
+slot machines (warm/cold), HEAT bar, roll popups, slot-reel draft overlay, casino-receipt
+death/victory screens (receipt: later milestone). Audio via ZzFX: later milestone.
 
 ## Testing
 
-- **Unit tests (Vitest)** on the sim: resolver behavior, charm modifiers, wave spawning, death-save limits.
-- **Statistical balance tests:** e.g., "death save at 80 luck vs house edge 12 succeeds 65–75% over 10k seeded trials." Balance is asserted math, not vibes.
-- **Determinism test:** same seed + same inputs → identical state hash.
-- **Feel:** Noah playtests daily and files feel-notes; tunable values (spawn rates, luck curves, house-edge growth) live in content/config data so feel fixes are number tweaks.
+Unit + statistical tests on the sim (resolver bands, spin economy, heat curve, alarm);
+determinism test across waves of gambling/fighting including scripted draft commands;
+Noah playtests daily — all tunables live in `src/sim/config.ts` so feel fixes are number tweaks.
 
 ## Schedule (every day ends playable)
 
 | Days (June) | Goal |
 |---|---|
-| 10–11 | Scaffold, sim core, luck resolver, player + enemies + one weapon. Deploy pipeline live day 1. Playable by day 2. |
-| 12–13 | Waves, chips, slot-machine draft, death saves. Full loop exists. |
-| 14–16 | Charms system, hot streak, enemy variety, first Pit Boss. Daily playtests + statistical balance tests. |
-| 17–18 | Content fill (20 charms, 8 enemies, 3 bosses), endless mode, daily seed. |
-| 19–20 | Juice pass, audio, title/results screens, balance pass. |
-| 21 | Buffer: bugs, README with GIFs, final deploy, resume blurb. |
+| 10 | ✅ M1 shipped: luck engine, combat, death saves, determinism, live deploy. |
+| 11–13 | **M2 — The Floor:** big world + camera, slot machines + gambling, HEAT + guard pressure, upgrade drafts, break-the-bank alarm + victory. |
+| 14–16 | M3 — depth: charms as RollModifiers, hot-streak multiplier, guard variety, Pit Boss. |
+| 17–18 | M4 — juice: ZzFX audio, screen shake/hit-stop, death receipt, daily seed. |
+| 19–20 | Balance passes from playtests; performance (pooling) if needed. |
+| 21 | Buffer: bugs, README/GIFs, final deploy, resume blurb. |
 
-If real life eats days, the cut order is: stretch goals → content counts (fewer charms/enemies/bosses) → endless mode → daily seed. The core loop and polish are never cut.
+Cut order if life eats days: M4 extras → guard variety → hot streak → charm count.
+The Floor loop (gamble/heat/fight) and polish on it are never cut.
 
 ## Repo & deploy
 
-- Fresh public repo: `~/Projects/house-edge` → Noah's personal GitHub.
-- GitHub Pages via Actions on every push to main — live from the first day.
-- No Co-Authored-By lines in commits.
+Public repo `Positivitty/house-edge`; GitHub Pages auto-deploy on push to main; live at
+https://positivitty.github.io/house-edge/. No Co-Authored-By lines in commits.
