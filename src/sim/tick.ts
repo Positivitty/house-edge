@@ -90,12 +90,12 @@ function fireWeapon(state: SimState): void {
     id: state.nextId++,
     pos: { x: p.pos.x, y: p.pos.y },
     vel: { x: dx * CONFIG.weapon.projectileSpeed, y: dy * CONFIG.weapon.projectileSpeed },
-    damage: CONFIG.weapon.damage,
+    damage: p.weapon.damage,
     radius: CONFIG.weapon.projectileRadius,
     ttl: CONFIG.weapon.projectileTtl,
     alive: true,
   })
-  p.fireCooldown = CONFIG.weapon.cooldownTicks
+  p.fireCooldown = p.weapon.cooldownTicks
 }
 
 function moveProjectiles(state: SimState): void {
@@ -162,7 +162,7 @@ function resolveProjectileHits(state: SimState, rng: Rng): void {
       let damage = pr.damage
       const crit = resolve('crit', luck, state.houseEdge, rng)
       if (crit.success) {
-        damage *= CONFIG.weapon.critMultiplier
+        damage *= state.player.weapon.critMultiplier
         state.events.push({ kind: 'roll', result: crit, pos: { ...e.pos } })
       }
       e.hp -= damage

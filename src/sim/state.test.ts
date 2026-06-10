@@ -14,4 +14,13 @@ describe('createInitialState', () => {
     expect(s.gameOver).toBe(false)
     expect(s.tick).toBe(0)
   })
+
+  it('initializes player weapon stats from config', () => {
+    const s = createInitialState()
+    expect(s.player.weapon).toEqual({
+      damage: CONFIG.weapon.damage,
+      cooldownTicks: CONFIG.weapon.cooldownTicks,
+      critMultiplier: CONFIG.weapon.critMultiplier,
+    })
+  })
 })

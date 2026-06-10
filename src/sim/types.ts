@@ -15,6 +15,11 @@ export interface Player {
   deathSavesLeft: number
   iframes: number // ticks of invulnerability remaining
   fireCooldown: number // ticks until next shot
+  weapon: {
+    damage: number
+    cooldownTicks: number
+    critMultiplier: number
+  }
 }
 
 export interface Enemy {

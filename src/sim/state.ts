@@ -14,6 +14,11 @@ export function createInitialState(): SimState {
       deathSavesLeft: CONFIG.player.deathSaves,
       iframes: 0,
       fireCooldown: 0,
+      weapon: {
+        damage: CONFIG.weapon.damage,
+        cooldownTicks: CONFIG.weapon.cooldownTicks,
+        critMultiplier: CONFIG.weapon.critMultiplier,
+      },
     },
     enemies: [],
     projectiles: [],
