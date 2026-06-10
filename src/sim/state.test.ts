@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { createInitialState } from './state'
+import { createRng } from './rng'
 import { CONFIG } from './config'
 
 describe('createInitialState', () => {
@@ -36,5 +37,17 @@ describe('createInitialState', () => {
     expect(a.phase).toBe('combat')
     expect(a.heat).toBe(0)
     expect(a.victory).toBe(false)
+  })
+
+  it('machines never overlap across many seeds', () => {
+    for (let seed = 1; seed <= 25; seed++) {
+      const s = createInitialState(createRng(seed))
+      for (let i = 0; i < s.machines.length; i++)
+        for (let j = i + 1; j < s.machines.length; j++) {
+          const a = s.machines[i].pos
+          const b = s.machines[j].pos
+          expect(Math.hypot(a.x - b.x, a.y - b.y), `seed ${seed} machines ${i},${j}`).toBeGreaterThanOrEqual(160)
+        }
+    }
   })
 })

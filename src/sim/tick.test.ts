@@ -238,7 +238,7 @@ describe('tick: gambling', () => {
     const m = s.machines[0]
     s.player.pos = { ...m.pos } // standing on the machine
     s.spawnTimer = 100_000 // suppress ambient spawns to prevent combat interference
-    // Move all other machines far away so only machine[0] is within interactRadius
+    // isolate machine[0]: park the rest at origin so proximity is unambiguous regardless of layout
     for (let i = 1; i < s.machines.length; i++) {
       s.machines[i].pos = { x: 0, y: 0 }
     }
@@ -246,13 +246,24 @@ describe('tick: gambling', () => {
   }
 
   it('spins on a timer: costs chips, gains luck, decrements machine spins, emits a spin event', () => {
+    // seed 30: first reel roll = 87 (loss; > 30 at luck 0, houseEdge 0)
     const s = atMachine(0, 100)
     const rng = createRng(30)
     for (let i = 0; i < CONFIG.machines.spinIntervalTicks; i++) tick(s, noInput, rng)
     expect(s.chips).toBe(100 - CONFIG.machines.spinCost)
-    expect(s.player.luck).toBeGreaterThanOrEqual(CONFIG.machines.luckOnLoss)
+    expect(s.player.luck).toBe(CONFIG.machines.luckOnLoss)
     expect(s.machines[0].spinsLeft).toBe(CONFIG.machines.spinsPerMachine - 1)
     expect(s.gamblingMachineId).toBe(s.machines[0].id)
+    expect(s.phase).toBe('combat')
+  })
+
+  it('a winning non-jackpot spin grants luckOnWin', () => {
+    // seed 8: first reel roll = 16 (win; <= 30), second reel roll = 63 (no jackpot; > 30)
+    const s = atMachine(0, 100)
+    const rng = createRng(8)
+    for (let i = 0; i < CONFIG.machines.spinIntervalTicks; i++) tick(s, noInput, rng)
+    expect(s.player.luck).toBe(CONFIG.machines.luckOnWin)
+    expect(s.phase).toBe('combat')
   })
 
   it('does not gamble when broke, far away, or at a cold machine', () => {

@@ -18,11 +18,17 @@ function layoutMachines(rng: Rng): Machine[] {
   for (let cy = 0; cy < rows; cy++) {
     for (let cx = 0; cx < cols; cx++) {
       if (ms.length >= CONFIG.machines.count) break
-      const x = ((cx + 0.5) / cols) * CONFIG.world.w + rng.int(-220, 220)
-      const y = ((cy + 0.5) / rows) * CONFIG.world.h + rng.int(-220, 220)
+      let pos = { x: 0, y: 0 }
+      for (let attempt = 0; attempt < 10; attempt++) {
+        const x = ((cx + 0.5) / cols) * CONFIG.world.w + rng.int(-220, 220)
+        const y = ((cy + 0.5) / rows) * CONFIG.world.h + rng.int(-220, 220)
+        pos = { x: clamp(x, 100, CONFIG.world.w - 100), y: clamp(y, 100, CONFIG.world.h - 100) }
+        const tooClose = ms.some((m) => Math.hypot(m.pos.x - pos.x, m.pos.y - pos.y) < 160)
+        if (!tooClose) break
+      }
       ms.push({
         id: id++,
-        pos: { x: clamp(x, 100, CONFIG.world.w - 100), y: clamp(y, 100, CONFIG.world.h - 100) },
+        pos,
         spinsLeft: spins,
       })
     }

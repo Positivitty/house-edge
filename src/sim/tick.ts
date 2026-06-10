@@ -14,6 +14,8 @@ export function tick(state: SimState, input: InputState, rng: Rng): SimState {
 
   movePlayer(state, input)
   updateGambling(state, rng)
+  // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-assertion
+  if ((state as SimState).phase === 'draft') return state // jackpot: the world pauses with you at the machine
   moveEnemies(state)
   spawnEnemies(state, rng)
   fireWeapon(state)
