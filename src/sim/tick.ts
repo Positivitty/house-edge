@@ -1,17 +1,19 @@
 import { CONFIG } from './config'
 import { resolve } from './resolve'
+import { openDraft } from './draft'
 import type { Rng } from './rng'
-import type { InputState, SimState } from './types'
+import type { InputState, Machine, SimState } from './types'
 
 const DT = 1 / CONFIG.tickRate
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v))
 
 export function tick(state: SimState, input: InputState, rng: Rng): SimState {
-  if (state.gameOver) return state
+  if (state.gameOver || state.phase === 'draft') return state
   state.events.length = 0
   state.tick++
 
   movePlayer(state, input)
+  updateGambling(state, rng)
   moveEnemies(state)
   spawnEnemies(state, rng)
   fireWeapon(state)
@@ -142,6 +144,49 @@ function resolveContactDamage(state: SimState, rng: Rng): void {
     p.hp -= e.touchDamage
     p.iframes = CONFIG.player.iframeTicks
     return // one contact hit per tick is plenty
+  }
+}
+
+function updateGambling(state: SimState, rng: Rng): void {
+  const p = state.player
+  let machine: Machine | null = null
+  if (!state.alarm && state.chips >= CONFIG.machines.spinCost) {
+    for (const m of state.machines) {
+      if (m.spinsLeft <= 0) continue
+      if (Math.hypot(m.pos.x - p.pos.x, m.pos.y - p.pos.y) > CONFIG.machines.interactRadius) continue
+      machine = m
+      break
+    }
+  }
+  if (!machine) {
+    state.gamblingMachineId = null
+    state.spinTimer = CONFIG.machines.spinIntervalTicks // no banked partial spins
+    return
+  }
+
+  state.gamblingMachineId = machine.id
+  state.spinTimer--
+  if (state.spinTimer > 0) return
+  state.spinTimer = CONFIG.machines.spinIntervalTicks
+
+  state.chips -= CONFIG.machines.spinCost
+  machine.spinsLeft--
+
+  const win = resolve('reel', p.luck, state.houseEdge, rng)
+  let gained: number = CONFIG.machines.luckOnLoss
+  let jackpot = false
+  if (win.success) {
+    gained = CONFIG.machines.luckOnWin
+    if (resolve('reel', p.luck, state.houseEdge, rng).success) {
+      gained += CONFIG.machines.jackpotLuck
+      jackpot = true
+    }
+  }
+  p.luck += gained
+  state.events.push({ kind: 'spin', result: win, luckGained: gained, pos: { ...machine.pos } })
+  if (jackpot) {
+    state.events.push({ kind: 'jackpot', pos: { ...machine.pos } })
+    openDraft(state, rng)
   }
 }
 
