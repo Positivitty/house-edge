@@ -13,6 +13,8 @@ export function tick(state: SimState, input: InputState, rng: Rng): SimState {
   movePlayer(state, input)
   moveEnemies(state)
   spawnEnemies(state, rng)
+  fireWeapon(state)
+  moveProjectiles(state)
   return state
 }
 
@@ -59,4 +61,46 @@ function moveEnemies(state: SimState): void {
     e.pos.x += (dx / len) * e.speed * DT
     e.pos.y += (dy / len) * e.speed * DT
   }
+}
+
+function fireWeapon(state: SimState): void {
+  const p = state.player
+  if (p.fireCooldown > 0) {
+    p.fireCooldown--
+    return
+  }
+  let nearest = null as SimState['enemies'][number] | null
+  let nearestDist = Infinity
+  for (const e of state.enemies) {
+    if (!e.alive) continue
+    const d = Math.hypot(e.pos.x - p.pos.x, e.pos.y - p.pos.y)
+    if (d < nearestDist) {
+      nearest = e
+      nearestDist = d
+    }
+  }
+  if (!nearest) return
+
+  const dx = (nearest.pos.x - p.pos.x) / nearestDist
+  const dy = (nearest.pos.y - p.pos.y) / nearestDist
+  state.projectiles.push({
+    id: state.nextId++,
+    pos: { x: p.pos.x, y: p.pos.y },
+    vel: { x: dx * CONFIG.weapon.projectileSpeed, y: dy * CONFIG.weapon.projectileSpeed },
+    damage: CONFIG.weapon.damage,
+    radius: CONFIG.weapon.projectileRadius,
+    ttl: CONFIG.weapon.projectileTtl,
+    alive: true,
+  })
+  p.fireCooldown = CONFIG.weapon.cooldownTicks
+}
+
+function moveProjectiles(state: SimState): void {
+  for (const pr of state.projectiles) {
+    pr.pos.x += pr.vel.x * DT
+    pr.pos.y += pr.vel.y * DT
+    pr.ttl--
+    if (pr.ttl <= 0) pr.alive = false
+  }
+  state.projectiles = state.projectiles.filter((pr) => pr.alive)
 }

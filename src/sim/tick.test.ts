@@ -66,3 +66,52 @@ describe('tick: enemies', () => {
     expect(after).toBeLessThan(before)
   })
 })
+
+describe('tick: weapon', () => {
+  function withEnemy(dx: number, dy: number) {
+    const s = createInitialState()
+    s.enemies.push({
+      id: 50,
+      pos: { x: s.player.pos.x + dx, y: s.player.pos.y + dy },
+      hp: 1000, speed: 0, radius: CONFIG.enemy.radius, touchDamage: 0, alive: true,
+    })
+    return s
+  }
+
+  it('fires a projectile toward the nearest enemy when cooldown is ready', () => {
+    const s = withEnemy(200, 0)
+    tick(s, noInput, createRng(4))
+    expect(s.projectiles.length).toBe(1)
+    expect(s.projectiles[0].vel.x).toBeGreaterThan(0)
+    expect(Math.abs(s.projectiles[0].vel.y)).toBeLessThan(1)
+  })
+
+  it('respects the fire cooldown', () => {
+    const s = withEnemy(200, 0)
+    const rng = createRng(4)
+    tick(s, noInput, rng) // fires
+    tick(s, noInput, rng) // cooling down
+    expect(s.projectiles.length).toBe(1)
+    for (let i = 0; i < CONFIG.weapon.cooldownTicks; i++) tick(s, noInput, rng)
+    expect(s.projectiles.length).toBe(2)
+  })
+
+  it('does not fire with no enemies alive', () => {
+    const s = createInitialState()
+    tick(s, noInput, createRng(4))
+    expect(s.projectiles.length).toBe(0)
+  })
+
+  it('projectiles move and expire after ttl', () => {
+    const s = withEnemy(10_000, 0) // far away: projectile will never reach it
+    s.spawnTimer = 100_000 // suppress ambient spawns
+    const rng = createRng(4)
+    tick(s, noInput, rng)
+    const px0 = s.projectiles[0].pos.x
+    s.player.fireCooldown = 10_000 // suppress refiring after first shot
+    tick(s, noInput, rng)
+    expect(s.projectiles[0].pos.x).toBeGreaterThan(px0)
+    for (let i = 0; i < CONFIG.weapon.projectileTtl + 1; i++) tick(s, noInput, rng)
+    expect(s.projectiles.length).toBe(0)
+  })
+})
