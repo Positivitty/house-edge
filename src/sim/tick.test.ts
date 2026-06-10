@@ -305,3 +305,64 @@ describe('tick: gambling', () => {
     expect(s.chips).toBe(100) // timer restarted — no spin yet
   })
 })
+
+describe('tick: heat and guards', () => {
+  it('heat rises while not gambling and drains while gambling', () => {
+    const s = createInitialState()
+    const rng = createRng(40)
+    for (let i = 0; i < 100; i++) tick(s, noInput, rng)
+    expect(s.heat).toBeCloseTo(100 * CONFIG.heat.risePerTick, 1)
+
+    s.heat = 50
+    s.chips = 1000
+    s.player.pos = { ...s.machines[0].pos }
+    tick(s, noInput, rng)
+    expect(s.heat).toBeLessThan(50)
+  })
+
+  it('no guards spawn below the heat threshold', () => {
+    const s = createInitialState()
+    const rng = createRng(41)
+    for (let i = 0; i < 200; i++) tick(s, noInput, rng) // heat reaches ~8 — below threshold 10
+    expect(s.enemies.length).toBe(0)
+  })
+
+  it('hot floor spawns guards on a ring around the player, scaled by elapsed time', () => {
+    const s = createInitialState()
+    s.heat = 100
+    s.tick = 3600 * 2 // pretend 2 minutes elapsed (scaling input)
+    s.spawnTimer = 0 // force the timer to fire on the first eligible tick
+    const rng = createRng(42)
+    for (let i = 0; i < CONFIG.heat.minSpawnIntervalTicks + 2; i++) tick(s, noInput, rng)
+    expect(s.enemies.length).toBeGreaterThanOrEqual(1)
+    const e = s.enemies[0]
+    const d = Math.hypot(e.pos.x - s.player.pos.x, e.pos.y - s.player.pos.y)
+    expect(d).toBeLessThanOrEqual(CONFIG.guards.ringRadius + 1)
+    expect(d).toBeGreaterThan(600) // player at world center: ring is never clamped
+    expect(e.hp).toBeGreaterThan(CONFIG.enemy.hp) // time-scaled
+  })
+
+  it('guards retreat while the player gambles', () => {
+    const s = createInitialState()
+    s.chips = 1000
+    s.player.pos = { ...s.machines[0].pos }
+    s.enemies.push({
+      id: 90, pos: { x: s.player.pos.x + 200, y: s.player.pos.y }, hp: 1000,
+      speed: CONFIG.enemy.speed, radius: CONFIG.enemy.radius, touchDamage: 0, alive: true,
+    })
+    tick(s, noInput, createRng(43))
+    const e = s.enemies[0]
+    const after = Math.hypot(e.pos.x - s.player.pos.x, e.pos.y - s.player.pos.y)
+    expect(after).toBeGreaterThan(200)
+  })
+
+  it('house edge rises with elapsed time', () => {
+    const s = createInitialState()
+    // Give the player huge hp so guards spawning from heat can't kill them before tick 3600
+    s.player.hp = 1_000_000
+    s.player.maxHp = 1_000_000
+    const rng = createRng(44)
+    for (let i = 0; i < 3600; i++) tick(s, noInput, rng) // one minute
+    expect(s.houseEdge).toBeCloseTo(CONFIG.houseEdge.perMinute, 0)
+  })
+})

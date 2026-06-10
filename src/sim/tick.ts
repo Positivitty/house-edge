@@ -16,8 +16,9 @@ export function tick(state: SimState, input: InputState, rng: Rng): SimState {
   updateGambling(state, rng)
   // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-assertion
   if ((state as SimState).phase === 'draft') return state // jackpot: the world pauses with you at the machine
+  updateHeatAndEdge(state)
   moveEnemies(state)
-  spawnEnemies(state, rng)
+  spawnGuards(state, rng)
   fireWeapon(state)
   moveProjectiles(state)
   resolveProjectileHits(state, rng)
@@ -38,36 +39,63 @@ function movePlayer(state: SimState, input: InputState): void {
   }
 }
 
-function spawnEnemies(state: SimState, rng: Rng): void {
+function updateHeatAndEdge(state: SimState): void {
+  if (state.alarm) state.heat = 100
+  else if (state.gamblingMachineId !== null)
+    state.heat = Math.max(0, state.heat - CONFIG.heat.drainPerTick)
+  else state.heat = Math.min(100, state.heat + CONFIG.heat.risePerTick)
+
+  const minutes = state.tick / (CONFIG.tickRate * 60)
+  state.houseEdge = CONFIG.houseEdge.start + minutes * CONFIG.houseEdge.perMinute
+}
+
+// Guards spawn on a ring just outside the view, only when the floor is hot,
+// never while the player is gambling (the house loves a customer).
+function spawnGuards(state: SimState, rng: Rng): void {
+  if (state.gamblingMachineId !== null && !state.alarm) return
+  if (state.heat < CONFIG.heat.spawnThreshold) return
   state.spawnTimer--
   if (state.spawnTimer > 0) return
-  state.spawnTimer = CONFIG.heat.maxSpawnIntervalTicks
+  const t = state.heat / 100
+  state.spawnTimer = Math.round(
+    CONFIG.heat.maxSpawnIntervalTicks -
+      t * (CONFIG.heat.maxSpawnIntervalTicks - CONFIG.heat.minSpawnIntervalTicks),
+  )
 
-  // pick a random point on a random arena edge
-  const side = rng.int(0, 3)
-  const x = side === 0 ? 0 : side === 1 ? CONFIG.world.w : rng.int(0, CONFIG.world.w)
-  const y = side === 2 ? 0 : side === 3 ? CONFIG.world.h : rng.int(0, CONFIG.world.h)
+  const minutes = state.tick / (CONFIG.tickRate * 60)
+  const angle = rng.next() * Math.PI * 2
+  const x = clamp(state.player.pos.x + Math.cos(angle) * CONFIG.guards.ringRadius, 0, CONFIG.world.w)
+  const y = clamp(state.player.pos.y + Math.sin(angle) * CONFIG.guards.ringRadius, 0, CONFIG.world.h)
 
   state.enemies.push({
     id: state.nextId++,
     pos: { x, y },
-    hp: CONFIG.enemy.hp,
-    speed: CONFIG.enemy.speed,
+    hp: Math.round(CONFIG.enemy.hp * (1 + CONFIG.guards.hpPerMinute * minutes)),
+    speed: CONFIG.enemy.speed * Math.min(1 + CONFIG.guards.speedPerMinute * minutes, CONFIG.guards.speedCap),
     radius: CONFIG.enemy.radius,
-    touchDamage: CONFIG.enemy.touchDamage,
+    touchDamage: CONFIG.enemy.touchDamage + Math.floor(CONFIG.guards.touchPerMinute * minutes),
     alive: true,
   })
 }
 
 function moveEnemies(state: SimState): void {
+  const retreating = state.gamblingMachineId !== null
   for (const e of state.enemies) {
     if (!e.alive) continue
     const dx = state.player.pos.x - e.pos.x
     const dy = state.player.pos.y - e.pos.y
     const len = Math.hypot(dx, dy) || 1
-    e.pos.x += (dx / len) * e.speed * DT
-    e.pos.y += (dy / len) * e.speed * DT
+    const dir = retreating ? -1 : 1
+    e.pos.x = clamp(e.pos.x + dir * (dx / len) * e.speed * DT, 0, CONFIG.world.w)
+    e.pos.y = clamp(e.pos.y + dir * (dy / len) * e.speed * DT, 0, CONFIG.world.h)
+    // a retreating guard that reaches the wall slips into the back rooms
+    if (
+      retreating &&
+      (e.pos.x === 0 || e.pos.x === CONFIG.world.w || e.pos.y === 0 || e.pos.y === CONFIG.world.h)
+    )
+      e.alive = false
   }
+  state.enemies = state.enemies.filter((e) => e.alive)
 }
 
 function fireWeapon(state: SimState): void {
