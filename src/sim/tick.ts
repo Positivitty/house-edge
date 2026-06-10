@@ -82,7 +82,7 @@ function fireWeapon(state: SimState): void {
       nearestDist = d
     }
   }
-  if (!nearest) return
+  if (!nearest || nearestDist === 0) return
 
   const dx = (nearest.pos.x - p.pos.x) / nearestDist
   const dy = (nearest.pos.y - p.pos.y) / nearestDist

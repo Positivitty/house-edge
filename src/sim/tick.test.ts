@@ -162,13 +162,25 @@ describe('tick: combat resolution', () => {
   })
 
   it('failed crit rolls emit no crit event (only the hit roll event)', () => {
+    // success path: any crit event emitted must be a successful crit
     const s = combatState(1000)
-    // run one tick; collect roll events; at most one 'crit' event and only if a crit succeeded
     tick(s, noInput, createRng(8))
-    const rolls = s.events.filter((e) => e.kind === 'roll')
-    const critRolls = rolls.filter((e) => e.kind === 'roll' && e.result.event === 'crit')
+    const critRolls = s.events.filter((e) => e.kind === 'roll' && e.result.event === 'crit')
     for (const c of critRolls) {
       if (c.kind === 'roll') expect(c.result.success).toBe(true)
+    }
+    expect(critRolls.length).toBeGreaterThan(0) // seed 8 + luck 1000 does crit — keeps this non-vacuous
+
+    // regression path: luck -1000 (hit clamps to 5%, crit to 5%) — across 30
+    // seeds at least one hit lands, and every crit roll that fails must emit
+    // nothing. With unconditional crit-event emission this WOULD find events.
+    for (let seed = 100; seed < 130; seed++) {
+      const sf = combatState(-1000)
+      tick(sf, noInput, createRng(seed))
+      const failedCrits = sf.events.filter(
+        (e) => e.kind === 'roll' && e.result.event === 'crit' && !e.result.success,
+      )
+      expect(failedCrits.length).toBe(0)
     }
   })
 })
