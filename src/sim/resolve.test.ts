@@ -59,4 +59,22 @@ describe('resolve', () => {
     const boosted = resolve('crit', 0, 0, rng, [plus20])
     expect(boosted.chance).toBe(base.chance + 20)
   })
+
+  it('modifiers run before the clamp — pushing past 95 still clamps to 95', () => {
+    const push: RollModifier = {
+      id: 'test-push-past-ceiling',
+      apply: (ctx) => ({ ...ctx, chance: ctx.chance + 30 }),
+    }
+    const r = resolve('hit', 0, 0, createRng(1), [push])
+    expect(r.chance).toBe(95)
+  })
+
+  it('multiple modifiers compose in order', () => {
+    const double: RollModifier = { id: 'double', apply: (ctx) => ({ ...ctx, chance: ctx.chance * 2 }) }
+    const minusTen: RollModifier = { id: 'minus-ten', apply: (ctx) => ({ ...ctx, chance: ctx.chance - 10 }) }
+    // crit base 5: (5*2)-10 = 0 → clamps to 5 ; reversed order would be (5-10)*2 = -10 → also clamps... so use loot base 25:
+    // (25*2)-10 = 40 ; reversed (25-10)*2 = 30 — distinguishable
+    const r = resolve('loot', 0, 0, createRng(1), [double, minusTen])
+    expect(r.chance).toBe(40)
+  })
 })
