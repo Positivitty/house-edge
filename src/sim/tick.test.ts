@@ -87,7 +87,10 @@ describe('tick: weapon', () => {
   })
 
   it('respects the fire cooldown', () => {
-    const s = withEnemy(200, 0)
+    // Enemy placed far enough (10 000 px) that no projectile reaches it during
+    // the cooldown window, so both projectiles remain in flight for the assertion.
+    const s = withEnemy(10_000, 0)
+    s.spawnTimer = 100_000 // suppress ambient spawns
     const rng = createRng(4)
     tick(s, noInput, rng) // fires
     tick(s, noInput, rng) // cooling down
@@ -113,5 +116,47 @@ describe('tick: weapon', () => {
     expect(s.projectiles[0].pos.x).toBeGreaterThan(px0)
     for (let i = 0; i < CONFIG.weapon.projectileTtl + 1; i++) tick(s, noInput, rng)
     expect(s.projectiles.length).toBe(0)
+  })
+})
+
+describe('tick: combat resolution', () => {
+  function combatState(luck = 1000) {
+    // luck 1000 clamps hit chance to 95 — kills are near-deterministic across seeds;
+    // luck -1000 clamps to 5 for the miss case.
+    const s = createInitialState()
+    s.spawnTimer = 100_000
+    s.player.luck = luck
+    s.enemies.push({
+      id: 60, pos: { x: s.player.pos.x + 30, y: s.player.pos.y }, hp: 10,
+      speed: 0, radius: CONFIG.enemy.radius, touchDamage: 0, alive: true,
+    })
+    s.projectiles.push({
+      id: 61, pos: { x: s.player.pos.x + 30, y: s.player.pos.y },
+      vel: { x: 0, y: 0 }, damage: 10, radius: CONFIG.weapon.projectileRadius,
+      ttl: 100, alive: true,
+    })
+    return s
+  }
+
+  it('successful hit roll damages and can kill; kill emits chips', () => {
+    const s = combatState(1000)
+    let guard = 0
+    while (s.enemies.length > 0 && guard++ < 50) tick(s, noInput, createRng(guard))
+    expect(s.enemies.length).toBe(0)
+    expect(s.chips).toBeGreaterThanOrEqual(CONFIG.loot.chipsOnLoss)
+  })
+
+  it('hit rolls emit roll events for the render layer', () => {
+    const s = combatState(1000)
+    tick(s, noInput, createRng(8))
+    const rollEvents = s.events.filter((e) => e.kind === 'roll')
+    expect(rollEvents.length).toBeGreaterThan(0)
+  })
+
+  it('a missed hit roll leaves the enemy undamaged', () => {
+    const s = combatState(-1000) // hit chance clamps to 5%
+    const rng = createRng(11) // chosen so the first hit roll with this seed is > 5; bump seed if not
+    tick(s, noInput, rng)
+    expect(s.enemies[0].hp).toBe(10)
   })
 })

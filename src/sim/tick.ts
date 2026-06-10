@@ -1,4 +1,5 @@
 import { CONFIG } from './config'
+import { resolve } from './resolve'
 import type { Rng } from './rng'
 import type { InputState, SimState } from './types'
 
@@ -15,6 +16,7 @@ export function tick(state: SimState, input: InputState, rng: Rng): SimState {
   spawnEnemies(state, rng)
   fireWeapon(state)
   moveProjectiles(state)
+  resolveProjectileHits(state, rng)
   return state
 }
 
@@ -103,4 +105,41 @@ function moveProjectiles(state: SimState): void {
     if (pr.ttl <= 0) pr.alive = false
   }
   state.projectiles = state.projectiles.filter((pr) => pr.alive)
+}
+
+function resolveProjectileHits(state: SimState, rng: Rng): void {
+  const luck = state.player.luck
+  for (const pr of state.projectiles) {
+    if (!pr.alive) continue
+    for (const e of state.enemies) {
+      if (!e.alive) continue
+      const d = Math.hypot(e.pos.x - pr.pos.x, e.pos.y - pr.pos.y)
+      if (d > e.radius + pr.radius) continue
+
+      pr.alive = false
+      const hit = resolve('hit', luck, state.houseEdge, rng)
+      state.events.push({ kind: 'roll', result: hit, pos: { ...e.pos } })
+      if (!hit.success) break // whiffed — projectile spent, enemy untouched
+
+      let damage = pr.damage
+      const crit = resolve('crit', luck, state.houseEdge, rng)
+      if (crit.success) {
+        damage *= CONFIG.weapon.critMultiplier
+        state.events.push({ kind: 'roll', result: crit, pos: { ...e.pos } })
+      }
+      e.hp -= damage
+
+      if (e.hp <= 0) {
+        e.alive = false
+        const loot = resolve('loot', luck, state.houseEdge, rng)
+        const chips = loot.success ? CONFIG.loot.chipsOnWin : CONFIG.loot.chipsOnLoss
+        state.chips += chips
+        state.events.push({ kind: 'roll', result: loot, pos: { ...e.pos } })
+        state.events.push({ kind: 'kill', pos: { ...e.pos }, chips })
+      }
+      break
+    }
+  }
+  state.projectiles = state.projectiles.filter((pr) => pr.alive)
+  state.enemies = state.enemies.filter((e) => e.alive)
 }
