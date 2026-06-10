@@ -1,6 +1,7 @@
 import { Application, Container, Graphics, Text } from 'pixi.js'
 import { CONFIG } from '../sim/config'
-import type { SimState } from '../sim/types'
+import { upgradeById } from '../content/upgrades'
+import type { Rarity, SimState } from '../sim/types'
 
 // Neon-on-felt palette (spec: procedural casino look)
 const COLORS = {
@@ -10,6 +11,13 @@ const COLORS = {
   enemy: 0xe43d5a, // hostile red
   projectile: 0x7df9ff, // electric blue card glint
   hud: 0xf4e9c9,
+  machineWarm: 0xffd700,
+  machineCold: 0x4a4a4a,
+  heatLow: 0x6fdc6f,
+  heatHigh: 0xff4040,
+  rarityCommon: 0xf4e9c9,
+  rarityRare: 0x7df9ff,
+  rarityJackpot: 0xffd700,
 }
 
 export class Renderer {
@@ -18,7 +26,13 @@ export class Renderer {
   private playerG = new Graphics()
   private enemiesG = new Graphics()
   private projectilesG = new Graphics()
+  private machinesG = new Graphics()
+  private floorG = new Graphics()
+  private heatG = new Graphics()
   private hud!: Text
+  private statusText!: Text
+  private draftUI: Container | null = null
+  private shownDraftVersion = -1
   private popups: { text: Text; ttl: number }[] = []
   // Events are emitted once per sim tick; draws happen once per frame (potentially
   // multiple frames per tick at 144 Hz, and zero new ticks once gameOver). Track
@@ -38,11 +52,20 @@ export class Renderer {
     })
     document.body.appendChild(this.app.canvas)
 
-    // felt table border
+    // Draw a subtle floor grid into floorG so camera motion is visible
+    for (let x = 320; x < CONFIG.world.w; x += 320)
+      this.floorG.moveTo(x, 0).lineTo(x, CONFIG.world.h)
+    for (let y = 320; y < CONFIG.world.h; y += 320)
+      this.floorG.moveTo(0, y).lineTo(CONFIG.world.w, y)
+    this.floorG.stroke({ width: 1, color: COLORS.feltLine, alpha: 0.5 })
+
+    // felt table border — world border
     const border = new Graphics()
-      .rect(4, 4, CONFIG.screen.w - 8, CONFIG.screen.h - 8)
+      .rect(4, 4, CONFIG.world.w - 8, CONFIG.world.h - 8)
       .stroke({ width: 3, color: COLORS.feltLine })
-    this.world.addChild(border, this.enemiesG, this.projectilesG, this.playerG)
+
+    // World layering: floor grid, border, machines, enemies, projectiles, player
+    this.world.addChild(this.floorG, border, this.machinesG, this.enemiesG, this.projectilesG, this.playerG)
     this.app.stage.addChild(this.world)
 
     this.hud = new Text({
@@ -50,10 +73,22 @@ export class Renderer {
       style: { fill: COLORS.hud, fontFamily: 'monospace', fontSize: 18 },
     })
     this.hud.position.set(12, 8)
-    this.app.stage.addChild(this.hud)
+
+    // Status line + heat bar on the STAGE (screen space)
+    this.statusText = new Text({
+      text: '',
+      style: { fill: COLORS.hud, fontFamily: 'monospace', fontSize: 16, fontWeight: 'bold' },
+    })
+    this.statusText.position.set(12, 34)
+    this.app.stage.addChild(this.hud, this.statusText, this.heatG)
   }
 
   draw(state: SimState): void {
+    // Camera follows the player, clamped to world bounds
+    const camX = Math.min(Math.max(state.player.pos.x - CONFIG.screen.w / 2, 0), CONFIG.world.w - CONFIG.screen.w)
+    const camY = Math.min(Math.max(state.player.pos.y - CONFIG.screen.h / 2, 0), CONFIG.world.h - CONFIG.screen.h)
+    this.world.position.set(-camX, -camY)
+
     const p = state.player
     this.playerG
       .clear()
@@ -71,12 +106,45 @@ export class Renderer {
       this.projectilesG.circle(pr.pos.x, pr.pos.y, pr.radius).fill(COLORS.projectile)
     }
 
+    // Machines
+    this.machinesG.clear()
+    for (const m of state.machines) {
+      const warm = m.spinsLeft > 0
+      this.machinesG
+        .roundRect(m.pos.x - 18, m.pos.y - 22, 36, 44, 6)
+        .fill(warm ? COLORS.machineWarm : COLORS.machineCold)
+      if (state.gamblingMachineId === m.id) {
+        this.machinesG.circle(m.pos.x, m.pos.y, CONFIG.machines.interactRadius)
+          .stroke({ width: 2, color: COLORS.machineWarm, alpha: 0.6 })
+      }
+    }
+
     this.hud.text =
-      `HP ${p.hp}/${p.maxHp}   LUCK ${p.luck}   CHIPS ${state.chips}   ` +
-      `SAVES ${p.deathSavesLeft}   HEAT ${Math.round(state.heat)}` +
-      (state.gameOver ? '   — BUSTED. refresh to re-buy —' : '')
+      `HP ${p.hp}/${p.maxHp}   LUCK ${p.luck}/${CONFIG.win.luckTarget}   ` +
+      `CHIPS ${state.chips}   SAVES ${p.deathSavesLeft}`
+
+    // Status line
+    const alarmSecs = Math.ceil(state.alarmTicksLeft / CONFIG.tickRate)
+    this.statusText.text = state.gameOver
+      ? '— BUSTED. refresh to re-buy —'
+      : state.victory
+        ? '🏆 YOU BEAT THE HOUSE (endless mode)'
+        : state.alarm
+          ? `🚨 ALARM — SURVIVE ${alarmSecs}s`
+          : state.gamblingMachineId !== null
+            ? 'GAMBLING — the house loves a customer'
+            : 'HUNTED — find a machine'
+
+    // Heat bar (screen space)
+    this.heatG.clear()
+    const hw = 260
+    this.heatG.rect(CONFIG.screen.w - hw - 16, 14, hw, 14).fill({ color: 0x000000, alpha: 0.5 })
+    this.heatG
+      .rect(CONFIG.screen.w - hw - 16, 14, (hw * state.heat) / 100, 14)
+      .fill(state.heat > 60 ? COLORS.heatHigh : COLORS.heatLow)
 
     this.drawPopups(state)
+    this.syncDraft(state)
   }
 
   private drawPopups(state: SimState): void {
@@ -94,6 +162,14 @@ export class Renderer {
             r.event === 'deathSave' ? 32 : 14)
         } else if (ev.kind === 'kill') {
           this.addPopup(`+${ev.chips}`, ev.pos.x, ev.pos.y - 16, 0xffd700, 16)
+        } else if (ev.kind === 'spin') {
+          this.addPopup(`+${ev.luckGained} LUCK`, ev.pos.x, ev.pos.y - 30, COLORS.machineWarm, 14)
+        } else if (ev.kind === 'jackpot') {
+          this.addPopup('JACKPOT!', ev.pos.x, ev.pos.y - 50, COLORS.rarityJackpot, 32)
+        } else if (ev.kind === 'alarm') {
+          this.addPopup('🚨 ALARM 🚨', state.player.pos.x, state.player.pos.y - 60, COLORS.heatHigh, 36)
+        } else if (ev.kind === 'victory') {
+          this.addPopup('🏆 BANK BROKEN', state.player.pos.x, state.player.pos.y - 60, COLORS.rarityJackpot, 36)
         }
         // 'playerHit' and 'luckySave' events are intentionally not rendered here —
         // deferred to the juice pass in a later milestone; the deathSave 'roll' event
@@ -118,7 +194,63 @@ export class Renderer {
     })
     text.position.set(x, y)
     text.anchor.set(0.5)
-    this.app.stage.addChild(text)
+    this.world.addChild(text)
     this.popups.push({ text, ttl: 60 })
+  }
+
+  // Draft overlay rebuilds only when the draft opens/changes, never per frame.
+  private syncDraft(state: SimState): void {
+    const want = state.phase === 'draft' && state.draft ? state.draft.version : -1
+    if (want === this.shownDraftVersion && (want >= 0) === !!this.draftUI) return
+    this.shownDraftVersion = want
+    if (this.draftUI) {
+      this.draftUI.destroy({ children: true })
+      this.draftUI = null
+    }
+    if (state.phase !== 'draft' || !state.draft) return
+
+    const ui = new Container()
+    ui.addChild(
+      new Graphics().rect(0, 0, CONFIG.screen.w, CONFIG.screen.h).fill({ color: 0x000000, alpha: 0.72 }),
+    )
+    const cx = CONFIG.screen.w / 2
+    const title = this.uiText('🎰 THE MACHINE PAYS OUT', 28, COLORS.rarityJackpot)
+    title.position.set(cx, 150)
+    ui.addChild(title)
+
+    state.draft.reels.forEach((reel, i) => {
+      const up = upgradeById(reel.upgradeId)
+      const line = this.uiText(
+        `[${i + 1}]  ${up.name} — ${up.desc}  (${reel.rarity.toUpperCase()})`,
+        20,
+        this.rarityColor(reel.rarity),
+      )
+      line.position.set(cx, 250 + i * 60)
+      ui.addChild(line)
+    })
+
+    const help = this.uiText(
+      `1/2/3 take an upgrade  ·  4/5/6 reroll that reel (${state.draft.rerollCost} chips — you have ${state.chips})`,
+      16,
+      COLORS.hud,
+    )
+    help.position.set(cx, 470)
+    ui.addChild(help)
+
+    this.app.stage.addChild(ui)
+    this.draftUI = ui
+  }
+
+  private rarityColor(r: Rarity): number {
+    return r === 'jackpot' ? COLORS.rarityJackpot : r === 'rare' ? COLORS.rarityRare : COLORS.rarityCommon
+  }
+
+  private uiText(label: string, size: number, color: number): Text {
+    const t = new Text({
+      text: label,
+      style: { fill: color, fontFamily: 'monospace', fontSize: size, fontWeight: 'bold' },
+    })
+    t.anchor.set(0.5)
+    return t
   }
 }
