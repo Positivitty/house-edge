@@ -44,6 +44,7 @@ describe('tick: player movement', () => {
 describe('tick: enemies', () => {
   it('enemies move toward the player', () => {
     const s = createInitialState()
+    s.heat = CONFIG.heat.spawnThreshold // above threshold so enemies chase, not retreat
     s.enemies.push({
       id: 99, pos: { x: 0, y: 0 }, hp: 20, speed: CONFIG.enemy.speed,
       radius: CONFIG.enemy.radius, touchDamage: CONFIG.enemy.touchDamage, alive: true,
@@ -59,6 +60,7 @@ describe('tick: enemies', () => {
 describe('tick: weapon', () => {
   function withEnemy(dx: number, dy: number) {
     const s = createInitialState()
+    s.heat = CONFIG.heat.spawnThreshold // above threshold so enemies chase, not retreat
     s.enemies.push({
       id: 50,
       pos: { x: s.player.pos.x + dx, y: s.player.pos.y + dy },
@@ -230,95 +232,12 @@ describe('tick: contact damage and death saves', () => {
   })
 })
 
-describe('tick: gambling', () => {
-  function atMachine(luck = 0, chips = 100) {
-    const s = createInitialState()
-    s.player.luck = luck
-    s.chips = chips
-    const m = s.machines[0]
-    s.player.pos = { ...m.pos } // standing on the machine
-    s.spawnTimer = 100_000 // suppress ambient spawns to prevent combat interference
-    // isolate machine[0]: park the rest at origin so proximity is unambiguous regardless of layout
-    for (let i = 1; i < s.machines.length; i++) {
-      s.machines[i].pos = { x: 0, y: 0 }
-    }
-    return s
-  }
-
-  it('spins on a timer: costs chips, gains luck, decrements machine spins, emits a spin event', () => {
-    // seed 30: first reel roll = 87 (loss; > 30 at luck 0, houseEdge 0)
-    const s = atMachine(0, 100)
-    const rng = createRng(30)
-    for (let i = 0; i < CONFIG.machines.spinIntervalTicks; i++) tick(s, noInput, rng)
-    expect(s.chips).toBe(100 - CONFIG.machines.spinCost)
-    expect(s.player.luck).toBe(CONFIG.machines.luckOnLoss)
-    expect(s.machines[0].spinsLeft).toBe(CONFIG.machines.spinsPerMachine - 1)
-    expect(s.gamblingMachineId).toBe(s.machines[0].id)
-    expect(s.phase).toBe('combat')
-  })
-
-  it('a winning non-jackpot spin grants luckOnWin', () => {
-    // seed 8: first reel roll = 16 (win; <= 30), second reel roll = 63 (no jackpot; > 30)
-    const s = atMachine(0, 100)
-    const rng = createRng(8)
-    for (let i = 0; i < CONFIG.machines.spinIntervalTicks; i++) tick(s, noInput, rng)
-    expect(s.player.luck).toBe(CONFIG.machines.luckOnWin)
-    expect(s.phase).toBe('combat')
-  })
-
-  it('does not gamble when broke, far away, or at a cold machine', () => {
-    const broke = atMachine(0, CONFIG.machines.spinCost - 1)
-    tick(broke, noInput, createRng(1))
-    expect(broke.gamblingMachineId).toBeNull()
-
-    const far = atMachine()
-    far.player.pos = { x: 100, y: 100 }
-    tick(far, noInput, createRng(1))
-    expect(far.gamblingMachineId).toBeNull()
-
-    const cold = atMachine()
-    cold.machines[0].spinsLeft = 0
-    tick(cold, noInput, createRng(1))
-    expect(cold.gamblingMachineId).toBeNull()
-  })
-
-  it('jackpot spins open the upgrade draft and freeze the sim', () => {
-    // luck 50: reel chance 55%, jackpot ~30%/spin — and ~16 spins of headroom below the alarm target (90 was only ~4 spins from tripping it)
-    const s = atMachine(50, 1000)
-    const rng = createRng(31)
-    let guard = 0
-    while (s.phase !== 'draft' && guard++ < 2000) tick(s, noInput, rng)
-    expect(s.phase).toBe('draft')
-    expect(s.draft).not.toBeNull()
-    const t = s.tick
-    tick(s, noInput, rng)
-    expect(s.tick).toBe(t) // frozen during draft
-  })
-
-  it('walking away resets the spin timer (no banked partial spins)', () => {
-    const s = atMachine(0, 100)
-    const rng = createRng(32)
-    for (let i = 0; i < CONFIG.machines.spinIntervalTicks - 5; i++) tick(s, noInput, rng)
-    s.player.pos = { x: 100, y: 100 } // leave
-    tick(s, noInput, rng)
-    s.player.pos = { ...s.machines[0].pos } // come back
-    for (let i = 0; i < 10; i++) tick(s, noInput, rng)
-    expect(s.chips).toBe(100) // timer restarted — no spin yet
-  })
-})
-
 describe('tick: heat and guards', () => {
-  it('heat rises while not gambling and drains while gambling', () => {
+  it('heat rises on the open floor', () => {
     const s = createInitialState()
     const rng = createRng(40)
     for (let i = 0; i < 100; i++) tick(s, noInput, rng)
     expect(s.heat).toBeCloseTo(100 * CONFIG.heat.risePerTick, 1)
-
-    s.heat = 50
-    s.chips = 1000
-    s.player.pos = { ...s.machines[0].pos }
-    tick(s, noInput, rng)
-    expect(s.heat).toBeLessThan(50)
   })
 
   it('no guards spawn below the heat threshold', () => {
@@ -343,10 +262,9 @@ describe('tick: heat and guards', () => {
     expect(e.hp).toBeGreaterThan(CONFIG.enemy.hp) // time-scaled
   })
 
-  it('guards retreat while the player gambles', () => {
+  it('guards retreat while heat is below the spawn threshold', () => {
     const s = createInitialState()
-    s.chips = 1000
-    s.player.pos = { ...s.machines[0].pos }
+    s.heat = 0
     s.enemies.push({
       id: 90, pos: { x: s.player.pos.x + 200, y: s.player.pos.y }, hp: 1000,
       speed: CONFIG.enemy.speed, radius: CONFIG.enemy.radius, touchDamage: 0, alive: true,

@@ -41,13 +41,8 @@ export const CONFIG = {
   machines: {
     count: 12,
     radius: 26, // visual size
-    interactRadius: 70, // stand this close to gamble
-    spinsPerMachine: 10, // then it runs cold, permanently
-    spinIntervalTicks: 45, // a spin every 0.75s while gambling
-    spinCost: 3, // chips per spin
-    luckOnWin: 3,
-    luckOnLoss: 1, // even losing teaches you the machine
-    jackpotLuck: 8, // bonus on jackpot (plus an upgrade draft)
+    interactRadius: 70, // stand this close to sit down (E)
+    spinsPerMachine: 10, // pulls before it runs cold, permanently
   },
   draft: { rerollCost: 5 },
   win: { luckTarget: 100, alarmTicks: 2700 }, // survive 45s of alarm to beat the house

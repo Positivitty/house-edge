@@ -1,8 +1,7 @@
 import { CONFIG } from './config'
 import { resolve } from './resolve'
-import { openDraft } from './draft'
 import type { Rng } from './rng'
-import type { InputState, Machine, SimState } from './types'
+import type { InputState, SimState } from './types'
 
 const DT = 1 / CONFIG.tickRate
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v))
@@ -13,9 +12,6 @@ export function tick(state: SimState, input: InputState, rng: Rng): SimState {
   state.tick++
 
   movePlayer(state, input)
-  updateGambling(state, rng)
-  // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-assertion
-  if ((state as SimState).phase === 'draft') return state // jackpot: the world pauses with you at the machine
   updateHeatAndEdge(state)
   moveEnemies(state)
   spawnGuards(state, rng)
@@ -42,18 +38,14 @@ function movePlayer(state: SimState, input: InputState): void {
 
 function updateHeatAndEdge(state: SimState): void {
   if (state.alarm) state.heat = 100
-  else if (state.gamblingMachineId !== null)
-    state.heat = Math.max(0, state.heat - CONFIG.heat.drainPerTick)
   else state.heat = Math.min(100, state.heat + CONFIG.heat.risePerTick)
 
   const minutes = state.tick / (CONFIG.tickRate * 60)
   state.houseEdge = CONFIG.houseEdge.start + minutes * CONFIG.houseEdge.perMinute
 }
 
-// Guards spawn on a ring just outside the view, only when the floor is hot,
-// never while the player is gambling (the house loves a customer).
+// Guards spawn on a ring just outside the view, only when the floor is hot.
 function spawnGuards(state: SimState, rng: Rng): void {
-  if (state.gamblingMachineId !== null && !state.alarm) return
   if (state.heat < CONFIG.heat.spawnThreshold) return
   state.spawnTimer--
   if (state.spawnTimer > 0) return
@@ -80,7 +72,7 @@ function spawnGuards(state: SimState, rng: Rng): void {
 }
 
 function moveEnemies(state: SimState): void {
-  const retreating = state.gamblingMachineId !== null
+  const retreating = !state.alarm && state.heat < CONFIG.heat.spawnThreshold
   for (const e of state.enemies) {
     if (!e.alive) continue
     const dx = state.player.pos.x - e.pos.x
@@ -175,49 +167,6 @@ function resolveContactDamage(state: SimState, rng: Rng): void {
     p.hp -= e.touchDamage
     p.iframes = CONFIG.player.iframeTicks
     return // one contact hit per tick is plenty
-  }
-}
-
-function updateGambling(state: SimState, rng: Rng): void {
-  const p = state.player
-  let machine: Machine | null = null
-  if (!state.alarm && state.chips >= CONFIG.machines.spinCost) {
-    for (const m of state.machines) {
-      if (m.spinsLeft <= 0) continue
-      if (Math.hypot(m.pos.x - p.pos.x, m.pos.y - p.pos.y) > CONFIG.machines.interactRadius) continue
-      machine = m
-      break
-    }
-  }
-  if (!machine) {
-    state.gamblingMachineId = null
-    state.spinTimer = CONFIG.machines.spinIntervalTicks // no banked partial spins
-    return
-  }
-
-  state.gamblingMachineId = machine.id
-  state.spinTimer--
-  if (state.spinTimer > 0) return
-  state.spinTimer = CONFIG.machines.spinIntervalTicks
-
-  state.chips -= CONFIG.machines.spinCost
-  machine.spinsLeft--
-
-  const win = resolve('reel', p.luck, state.houseEdge, rng)
-  let gained: number = CONFIG.machines.luckOnLoss
-  let jackpot = false
-  if (win.success) {
-    gained = CONFIG.machines.luckOnWin
-    if (resolve('reel', p.luck, state.houseEdge, rng).success) {
-      gained += CONFIG.machines.jackpotLuck
-      jackpot = true
-    }
-  }
-  p.luck += gained
-  state.events.push({ kind: 'spin', result: win, luckGained: gained, pos: { ...machine.pos } })
-  if (jackpot) {
-    state.events.push({ kind: 'jackpot', pos: { ...machine.pos } })
-    openDraft(state, rng)
   }
 }
 

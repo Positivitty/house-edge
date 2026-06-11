@@ -67,8 +67,6 @@ export function createInitialState(rng: Rng = createRng(1)): SimState {
     draft: null,
     machines: layoutMachines(rng),
     heat: 0,
-    spinTimer: CONFIG.machines.spinIntervalTicks,
-    gamblingMachineId: null,
     alarm: false,
     alarmTicksLeft: 0,
     victory: false,

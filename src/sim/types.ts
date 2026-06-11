@@ -71,8 +71,6 @@ export type SimEvent =
   | { kind: 'kill'; pos: Vec2; chips: number }
   | { kind: 'playerHit'; pos: Vec2 }
   | { kind: 'luckySave'; pos: Vec2 }
-  | { kind: 'spin'; result: RollResult; luckGained: number; pos: Vec2 }
-  | { kind: 'jackpot'; pos: Vec2 }
   | { kind: 'alarm' }
   | { kind: 'victory' }
 
@@ -98,8 +96,6 @@ export interface SimState {
   draft: DraftState | null
   machines: Machine[]
   heat: number // 0..100
-  spinTimer: number // ticks until next slot spin while gambling
-  gamblingMachineId: number | null
   alarm: boolean
   alarmTicksLeft: number
   victory: boolean
