@@ -3,6 +3,7 @@ import { tick } from './tick'
 import { createInitialState } from './state'
 import { createRng } from './rng'
 import { applyDraftCommand } from './draft'
+import { applySlotCommand } from './slot'
 import type { InputState } from './types'
 
 describe('determinism', () => {
@@ -16,6 +17,14 @@ describe('determinism', () => {
         if (s.phase === 'draft') {
           applyDraftCommand(s, { type: 'reroll', reel: 0 }, rng)
           applyDraftCommand(s, { type: 'pick', reel: i % 3 }, rng)
+        } else if (s.phase === 'slot') {
+          const step = i % 5
+          if (step === 0) applySlotCommand(s, { type: 'stake', dir: 1 }, rng)
+          else if (step < 3) applySlotCommand(s, { type: 'pull' }, rng)
+          else if (s.slot?.pendingWin) applySlotCommand(s, { type: i % 2 ? 'ride' : 'cash' }, rng)
+          else applySlotCommand(s, { type: 'exit' }, rng)
+        } else if (i % 97 === 0) {
+          applySlotCommand(s, { type: 'enter' }, rng) // no-op unless near a warm machine
         }
         const input: InputState = {
           up: inputRng.next() < 0.3,

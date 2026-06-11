@@ -284,6 +284,17 @@ describe('tick: heat and guards', () => {
     for (let i = 0; i < 3600; i++) tick(s, noInput, rng) // one minute
     expect(s.houseEdge).toBeCloseTo(CONFIG.houseEdge.perMinute, 0)
   })
+
+  it('on-screen guards are capped', () => {
+    const s = createInitialState()
+    s.heat = 100
+    s.spawnTimer = 0
+    s.player.hp = 1_000_000
+    s.player.maxHp = 1_000_000
+    const rng = createRng(45)
+    for (let i = 0; i < 5000; i++) tick(s, noInput, rng)
+    expect(s.enemies.length).toBeLessThanOrEqual(CONFIG.guards.maxOnScreen)
+  })
 })
 
 describe('tick: break the bank', () => {

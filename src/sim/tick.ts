@@ -47,6 +47,7 @@ function updateHeatAndEdge(state: SimState): void {
 // Guards spawn on a ring just outside the view, only when the floor is hot.
 function spawnGuards(state: SimState, rng: Rng): void {
   if (state.heat < CONFIG.heat.spawnThreshold) return
+  if (state.enemies.length >= CONFIG.guards.maxOnScreen) return
   state.spawnTimer--
   if (state.spawnTimer > 0) return
   const t = state.heat / 100

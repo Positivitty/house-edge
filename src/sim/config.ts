@@ -30,6 +30,7 @@ export const CONFIG = {
     speedPerMinute: 0.04,
     speedCap: 1.9,
     touchPerMinute: 1.2, // +1.2 touch damage per minute (floored)
+    maxOnScreen: 30, // swarms stay survivable-by-skill
   },
   heat: {
     risePerTick: 0.04, // heat always rises on the open floor; slot pulls drain it
