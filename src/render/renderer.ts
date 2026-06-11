@@ -1,7 +1,7 @@
 import { Application, Container, Graphics, Text } from 'pixi.js'
 import { CONFIG } from '../sim/config'
 import { upgradeById } from '../content/upgrades'
-import type { Rarity, SimState, SlotOutcome, SlotSymbol } from '../sim/types'
+import type { Rarity, SimState, SlotOutcome, SlotSymbol, Vec2 } from '../sim/types'
 import { play } from './audio'
 
 const SYMBOL_GLYPHS: Record<SlotSymbol, string> = {
@@ -59,6 +59,8 @@ export class Renderer {
   private flashOverlayGold!: Graphics
   private flashIsGold = false
   private hitStopFrames = 0
+  // Particle system
+  private particles: { g: Graphics; vx: number; vy: number; ttl: number; maxTtl: number; kind: 'chip' | 'spark'; homing?: boolean }[] = []
 
   constructor() {
     this.app = new Application()
@@ -175,6 +177,14 @@ export class Renderer {
 
     this.projectilesG.clear()
     for (const pr of state.projectiles) {
+      // Fake motion trail: draw at 60% and 30% alpha offset backward along velocity
+      const DT = 1 / CONFIG.tickRate
+      const tx1 = pr.pos.x - pr.vel.x * DT * 1.5
+      const ty1 = pr.pos.y - pr.vel.y * DT * 1.5
+      const tx2 = pr.pos.x - pr.vel.x * DT * 3
+      const ty2 = pr.pos.y - pr.vel.y * DT * 3
+      this.projectilesG.circle(tx2, ty2, pr.radius).fill({ color: COLORS.projectile, alpha: 0.3 })
+      this.projectilesG.circle(tx1, ty1, pr.radius).fill({ color: COLORS.projectile, alpha: 0.6 })
       this.projectilesG.circle(pr.pos.x, pr.pos.y, pr.radius).fill(COLORS.projectile)
     }
 
@@ -219,6 +229,7 @@ export class Renderer {
     }
 
     this.drawPopups(state)
+    this.updateParticles(state.player.pos)
     this.syncDraft(state)
     this.syncSlot(state)
   }
@@ -230,6 +241,8 @@ export class Renderer {
       for (const ev of state.events) {
         if (ev.kind === 'shot') {
           play('shot', 80)
+          // Muzzle flash: bright spark at shot position, ttl 2
+          this.spawnParticles(ev.pos.x, ev.pos.y, 1, 'spark', 0xffffff, 6, 1, 2, 2)
         } else if (ev.kind === 'roll') {
           const r = ev.result
           const label =
@@ -238,19 +251,32 @@ export class Renderer {
               : `${r.roll}/${r.chance}${r.success ? '' : ' miss'}`
           this.addPopup(label, ev.pos.x, ev.pos.y, r.success ? 0x9fff8a : 0xff6b6b,
             r.event === 'deathSave' ? 32 : 14)
-          if (r.event === 'hit' && r.success) play('hit')
-          else if (r.event === 'crit' && r.success) { play('crit'); this.addShake(6) }
+          if (r.event === 'hit' && r.success) {
+            play('hit')
+            // 3 cyan sparks on hit-success
+            this.spawnParticles(ev.pos.x, ev.pos.y, 3, 'spark', 0x7df9ff, 3, 3, 6, 12)
+          } else if (r.event === 'crit' && r.success) {
+            play('crit')
+            this.addShake(6)
+            // 3 cyan sparks on crit
+            this.spawnParticles(ev.pos.x, ev.pos.y, 3, 'spark', 0x7df9ff, 3, 3, 6, 12)
+          }
         } else if (ev.kind === 'kill') {
           this.addPopup(`+${ev.chips}`, ev.pos.x, ev.pos.y - 16, 0xffd700, 16)
           play('kill')
           play('chip')
           this.addShake(3)
           this.hitStopFrames = Math.max(this.hitStopFrames, 3)
+          // Chip scatter: 4 + min(chips, 8) gold chips
+          const count = 4 + Math.min(ev.chips, 8)
+          this.spawnChips(ev.pos.x, ev.pos.y, count)
         } else if (ev.kind === 'playerHit') {
           play('playerHit')
           this.addShake(8)
           this.flash = 0.35
           this.flashIsGold = false
+          // 6 red sparks on player hit
+          this.spawnParticles(ev.pos.x, ev.pos.y, 6, 'spark', 0xff4040, 3, 5, 6, 16)
         } else if (ev.kind === 'luckySave') {
           play('luckySave')
           this.addShake(14)
@@ -479,5 +505,96 @@ export class Renderer {
         ? SYMBOL_GLYPHS[sym]
         : SPIN_FLICKER[(this.reelRevealFrame + i) % SPIN_FLICKER.length]
     })
+  }
+
+  // Spawn spark particles (non-homing). Chips must go through spawnChips().
+  private spawnParticles(
+    x: number, y: number, count: number, kind: 'spark',
+    color: number, radius: number, speedMin: number, speedMax: number, ttl: number,
+  ): void {
+    for (let i = 0; i < count; i++) {
+      if (this.particles.length >= 400) break
+      const angle = Math.random() * Math.PI * 2
+      const speed = speedMin + Math.random() * (speedMax - speedMin)
+      const g = new Graphics().circle(0, 0, radius).fill(color)
+      g.position.set(x, y)
+      this.world.addChild(g)
+      this.particles.push({ g, vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed, ttl, maxTtl: ttl, kind })
+    }
+  }
+
+  // Spawn chip scatter particles with homing behaviour (Step 2)
+  private spawnChips(x: number, y: number, count: number): void {
+    for (let i = 0; i < count; i++) {
+      if (this.particles.length >= 400) break
+      const angle = Math.random() * Math.PI * 2
+      const speed = 2 + Math.random() * 3
+      const g = new Graphics().circle(0, 0, 3).fill(0xffd700)
+      g.position.set(x, y)
+      this.world.addChild(g)
+      // homing=false for first 12 frames of scatter; flipped in updateParticles
+      this.particles.push({ g, vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed, ttl: 40, maxTtl: 40, kind: 'chip', homing: false })
+    }
+  }
+
+  // Update all particles each draw frame
+  private updateParticles(playerPos: Vec2): void {
+    if (this.particles.length === 0) return
+    const toRemove: number[] = []
+    for (let i = 0; i < this.particles.length; i++) {
+      const p = this.particles[i]!
+      p.ttl--
+
+      if (p.ttl <= 0) {
+        toRemove.push(i)
+        continue
+      }
+
+      // Chip homing: after 12 frames of scatter, switch to homing toward player
+      if (p.kind === 'chip' && !p.homing && p.maxTtl - p.ttl >= 12) {
+        p.homing = true
+      }
+
+      if (p.kind === 'chip' && p.homing) {
+        // Lerp velocity toward player position with increasing strength
+        const dx = playerPos.x - p.g.x
+        const dy = playerPos.y - p.g.y
+        const dist = Math.sqrt(dx * dx + dy * dy)
+        if (dist < 20) {
+          // Arrived — play chip sound (throttled) and remove
+          play('chip', 80)
+          toRemove.push(i)
+          continue
+        }
+        // Increasing homing strength: stronger the longer it's been homing
+        const framesHoming = p.maxTtl - p.ttl - 12
+        const homingStrength = Math.min(0.12 + framesHoming * 0.006, 0.35)
+        const nx = dx / dist
+        const ny = dy / dist
+        const spd0 = Math.abs(p.vx) + Math.abs(p.vy) + 1
+        p.vx += nx * homingStrength * spd0
+        p.vy += ny * homingStrength * spd0
+        // Cap speed so it doesn't overshoot wildly
+        const spd = Math.sqrt(p.vx * p.vx + p.vy * p.vy)
+        if (spd > 17) { p.vx = (p.vx / spd) * 17; p.vy = (p.vy / spd) * 17 }
+      }
+
+      // Decelerate chips during scatter phase only; sparks fly free
+      if (p.kind === 'chip' && !p.homing) {
+        p.vx *= 0.92
+        p.vy *= 0.92
+      }
+
+      p.g.x += p.vx
+      p.g.y += p.vy
+      p.g.alpha = p.homing ? Math.max(p.ttl / p.maxTtl, 0.85) : p.ttl / p.maxTtl
+    }
+
+    // Remove dead particles in reverse order to preserve indices
+    for (let j = toRemove.length - 1; j >= 0; j--) {
+      const idx = toRemove[j]!
+      this.particles[idx]!.g.destroy()
+      this.particles.splice(idx, 1)
+    }
   }
 }
