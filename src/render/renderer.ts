@@ -43,10 +43,18 @@ export class Renderer {
   private shownDraftVersion = -1
   private slotUI: Container | null = null
   private shownSlotVersion = -1
+  private fxLayer = new Container()
   private reelTexts: Text[] = []
   private reelRevealFrame = 0
+  private nearMissApplied = false
   private lastSlotReels: SlotSymbol[] | null = null
   private lastSlotOutcome: SlotOutcome | null = null
+  // Lever animation: leverFrame counts up on fresh pull, resets after spring-back
+  private leverFrame = 0
+  private leverGraphics: Graphics | null = null
+  // Result text pulse: pulseFrame counts when a win result is shown
+  private resultText: Text | null = null
+  private resultPulseFrame = 0
   private popups: { text: Text; ttl: number }[] = []
   // Events are emitted once per sim tick; draws happen once per frame (potentially
   // multiple frames per tick at 144 Hz, and zero new ticks once gameOver). Track
@@ -92,6 +100,9 @@ export class Renderer {
     // World layering: floor grid, border, machines, enemies, projectiles, player
     this.world.addChild(this.floorG, border, this.machinesG, this.enemiesG, this.projectilesG, this.playerG)
     this.app.stage.addChild(this.world)
+
+    // fxLayer sits above slotUI; re-parented to top of stage whenever syncSlot recreates slotUI
+    this.app.stage.addChild(this.fxLayer)
 
     // Fullscreen damage flash overlays (stage-level, above world, behind HUD overlays)
     this.flashOverlayWhite = new Graphics()
@@ -393,6 +404,10 @@ export class Renderer {
     if (prevShownVersion === -1) {
       play('jackpot')
       play('draftOpen')
+      // BIG jackpot celebration: gold flash + heavy shake
+      this.flash = 0.5
+      this.flashIsGold = true
+      this.addShake(12)
     } else {
       play('reelTick')
     }
@@ -457,6 +472,8 @@ export class Renderer {
       this.slotUI = null
       this.reelTexts = []
       this.lastSlotReels = null
+      this.leverGraphics = null
+      this.resultText = null
     }
     if (state.phase !== 'slot' || !state.slot) {
       this.lastSlotOutcome = null
@@ -491,9 +508,15 @@ export class Renderer {
     this.lastSlotReels = slot.reels
     // only a fresh pull (new reels array) animates; stake/ride/cash rebuilds show instantly
     this.reelRevealFrame = slot.reels !== null && slot.reels === prevReels ? 999 : 0
+    // Reset near-miss flag on every slot open; kick lever only on fresh pull with reels
+    const freshPull = this.reelRevealFrame === 0 && slot.reels !== null
+    this.nearMissApplied = false
+    if (freshPull) {
+      this.leverFrame = 1 // kick off lever pull animation
+    }
+    this.leverGraphics = null // will be redrawn each animateReels call
 
     // Slot sounds keyed to what changed in this rebuild
-    const freshPull = this.reelRevealFrame === 0 && slot.reels !== null
     if (freshPull) play('lever')
     const outcome = slot.outcome
     const freshOutcome = outcome !== this.lastSlotOutcome
@@ -535,6 +558,17 @@ export class Renderer {
     )
     result.position.set(cx, 410)
     ui.addChild(result)
+    // Store result text reference for pulse animation; start pulse only when a win outcome
+    // is FRESH (new outcome this rebuild). Stake/ride rebuilds on an already-seen outcome do
+    // not restart the pulse, and a non-win/stale rebuild leaves any in-flight pulse alone.
+    this.resultText = result
+    const isWinOutcome = o && (o.kind === 'luck' || o.kind === 'chips' || o.kind === 'rideWin')
+    if (isWinOutcome && freshOutcome) {
+      this.resultPulseFrame = 1
+    } else if (!isWinOutcome) {
+      this.resultPulseFrame = 0
+    }
+    // else: stale win rebuild — leave resultPulseFrame as-is (in-flight pulse continues)
 
     const help = slot.pendingWin
       ? this.uiText('SPACE ride it (double or nothing)  ·  ENTER cash out', 16, COLORS.hud)
@@ -546,31 +580,170 @@ export class Renderer {
     heat.position.set(cx, 510)
     ui.addChild(heat)
 
+    // Lever placeholder graphic (redrawn each frame by animateReels)
+    const leverG = new Graphics()
+    ui.addChild(leverG)
+    this.leverGraphics = leverG
+
     this.app.stage.addChild(ui)
+    // Re-order fxLayer above slotUI so slot sparks render over the scrim
+    this.app.stage.addChild(this.fxLayer)
     this.slotUI = ui
   }
 
   private animateReels(): void {
     if (!this.slotUI) return
     this.reelRevealFrame++
+    const f = this.reelRevealFrame
+
+    // --- Lever animation ---
+    // leverFrame: 0 = idle, 1..8 = yanking down, 9..16 = springing back, then reset to 0
+    if (this.leverFrame > 0 && this.leverFrame <= 16) {
+      this.leverFrame++
+    }
+    if (this.leverFrame > 16) {
+      this.leverFrame = 0
+    }
+    this.drawLever()
+
     if (!this.lastSlotReels) return // no pull yet: keep placeholders
-    const isFlickering = this.lastSlotReels.some((_, i) => this.reelRevealFrame < (i + 1) * 18)
-    if (isFlickering) play('reelTick', 60)
+
+    // Step 1: Escalating reveal frames — 25 / 55 / 95
+    // Step 2: Suspense/buildup extension — if the first two revealed symbols match
+    //         (including on genuine wins; this is intentional anticipation on any two-match),
+    //         delay the third reveal by +40 frames (applied once per spin)
+    const BASE_REVEALS = [25, 55, 95] as const
+
+    // Detect near-miss: first two must be revealed AND matching, third still spinning
+    const reel0RevealAt = BASE_REVEALS[0]
+    const reel1RevealAt = BASE_REVEALS[1]
+    let reel2RevealAt = BASE_REVEALS[2]
+
+    const reel0Revealed = f >= reel0RevealAt
+    const reel1Revealed = f >= reel1RevealAt
+
+    if (
+      !this.nearMissApplied &&
+      reel0Revealed &&
+      reel1Revealed &&
+      this.lastSlotReels[0] === this.lastSlotReels[1] &&
+      f < BASE_REVEALS[2]
+    ) {
+      this.nearMissApplied = true
+    }
+
+    if (this.nearMissApplied) {
+      reel2RevealAt = BASE_REVEALS[2] + 40
+    }
+
+    // Buildup shake: every ~10 frames after reel1 revealed while reel2 still spinning
+    if (this.nearMissApplied && f < reel2RevealAt && f % 10 === 0) {
+      this.addShake(2)
+    }
+
+    // Escalating reelTick cadence: play when reelRevealFrame % max(2, 8 - floor(f/12)) === 0
+    const isFlickering =
+      !reel0Revealed ||
+      !reel1Revealed ||
+      f < reel2RevealAt
+    if (isFlickering) {
+      const cadence = Math.max(2, 8 - Math.floor(f / 12))
+      if (f % cadence === 0) play('reelTick', 60)
+    }
+
+    const revealAts = [reel0RevealAt, reel1RevealAt, reel2RevealAt]
+
     this.lastSlotReels.forEach((sym, i) => {
       const t = this.reelTexts[i]
       if (!t) return
-      const revealAt = (i + 1) * 18 // ~0.3s apart at 60fps
-      const wasFlickering = (this.reelRevealFrame - 1) < revealAt
-      const nowRevealed = this.reelRevealFrame >= revealAt
-      if (wasFlickering && nowRevealed) play('reelLand')
+      const revealAt = revealAts[i]!
+      const wasFlickering = (f - 1) < revealAt
+      const nowRevealed = f >= revealAt
+      if (wasFlickering && nowRevealed) {
+        play('reelLand')
+        // Step 4: Win celebration sparks on reel landing if this is a win
+        // Only trigger on last reel reveal (reel 2)
+        if (i === 2) {
+          const outcome = this.lastSlotOutcome
+          if (outcome && (outcome.kind === 'luck' || outcome.kind === 'chips')) {
+            this.spawnSlotSparks()
+          }
+        }
+      }
       t.text = nowRevealed
         ? SYMBOL_GLYPHS[sym]
-        : SPIN_FLICKER[(this.reelRevealFrame + i) % SPIN_FLICKER.length]
+        : SPIN_FLICKER[(f + i) % SPIN_FLICKER.length]
     })
+
+    // Step 4: Pulse result text scale on win (12-frame arc: 1 → 1.3 → 1)
+    if (this.resultPulseFrame > 0 && this.resultText) {
+      const pf = this.resultPulseFrame
+      this.resultPulseFrame++
+      if (pf <= 6) {
+        const s = 1 + (pf / 6) * 0.3
+        this.resultText.scale.set(s)
+      } else if (pf <= 12) {
+        const s = 1.3 - ((pf - 6) / 6) * 0.3
+        this.resultText.scale.set(s)
+      } else {
+        this.resultText.scale.set(1)
+        this.resultPulseFrame = 0
+      }
+    }
   }
 
-  // Spawn spark particles (non-homing). Chips must go through spawnChips().
-  private spawnParticles(
+  // Draw the lever (rod + ball) on the right side of the machine frame.
+  // leverFrame: 0 = idle, 1-8 = yanking down, 9-16 = springing back
+  private drawLever(): void {
+    const g = this.leverGraphics
+    if (!g) return
+    g.clear()
+
+    const cx = CONFIG.screen.w / 2
+    // Lever anchor: right side of machine frame, vertically centered in the frame
+    // Machine frame: cx-260 to cx+260, y 120 to 540 (height 420)
+    const lx = cx + 260 + 12 // just outside right edge
+    const ly = 280 // anchor point (vertical center area)
+
+    // Compute yank offset: yank down during frames 1-8, spring back during 9-16
+    let yankOffset = 0
+    if (this.leverFrame >= 1 && this.leverFrame <= 8) {
+      // Ease in: 0 → 40px over 8 frames
+      yankOffset = (this.leverFrame / 8) * 40
+    } else if (this.leverFrame >= 9 && this.leverFrame <= 16) {
+      // Spring back: 40 → 0 over 8 frames
+      yankOffset = ((16 - this.leverFrame) / 8) * 40
+    }
+
+    // Rod: vertical line from anchor down to ball
+    const rodLength = 60
+    const ballY = ly + rodLength + yankOffset
+    g.moveTo(lx, ly).lineTo(lx, ballY)
+    g.stroke({ width: 5, color: COLORS.machineCold })
+
+    // Ball at bottom of rod
+    g.circle(lx, ballY, 9).fill(COLORS.machineWarm)
+
+    // Pivot mount at top of rod
+    g.circle(lx, ly, 5).fill(COLORS.machineCold)
+  }
+
+  // Spawn 10 gold sparks at screen-space reel positions into fxLayer (above the slot scrim).
+  // Reels are at screen coords: cx-120, cx, cx+120, y=260 — no world-coord conversion needed.
+  private spawnSlotSparks(): void {
+    const cx = CONFIG.screen.w / 2
+    for (let i = 0; i < 3; i++) {
+      const sx = cx - 120 + i * 120
+      const sy = 260
+      this.spawnParticlesInto(this.fxLayer, sx, sy, 3, 'spark', 0xffd700, 4, 3, 7, 18)
+    }
+    // One extra spark at center for total ~10
+    this.spawnParticlesInto(this.fxLayer, cx, 260, 1, 'spark', 0xffd700, 4, 3, 7, 18)
+  }
+
+  // Spawn spark particles into a specific container. Chips must go through spawnChips().
+  private spawnParticlesInto(
+    container: Container,
     x: number, y: number, count: number, kind: 'spark',
     color: number, radius: number, speedMin: number, speedMax: number, ttl: number,
   ): void {
@@ -580,9 +753,17 @@ export class Renderer {
       const speed = speedMin + Math.random() * (speedMax - speedMin)
       const g = new Graphics().circle(0, 0, radius).fill(color)
       g.position.set(x, y)
-      this.world.addChild(g)
+      container.addChild(g)
       this.particles.push({ g, vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed, ttl, maxTtl: ttl, kind })
     }
+  }
+
+  // Spawn spark particles into the world container (combat effects).
+  private spawnParticles(
+    x: number, y: number, count: number, kind: 'spark',
+    color: number, radius: number, speedMin: number, speedMax: number, ttl: number,
+  ): void {
+    this.spawnParticlesInto(this.world, x, y, count, kind, color, radius, speedMin, speedMax, ttl)
   }
 
   // Spawn chip scatter particles with homing behaviour (Step 2)
