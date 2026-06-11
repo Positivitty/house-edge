@@ -30,13 +30,13 @@ export const CONFIG = {
     speedPerMinute: 0.04,
     speedCap: 1.9,
     touchPerMinute: 1.2, // +1.2 touch damage per minute (floored)
-    maxOnScreen: 30, // swarms stay survivable-by-skill
+    maxOnScreen: 60, // spectacle needs bodies; they're circles, perf is fine
   },
   heat: {
-    risePerTick: 0.04, // heat always rises on the open floor; slot pulls drain it
-    spawnThreshold: 10, // below this: no spawns (grace period)
-    minSpawnIntervalTicks: 25, // at heat 100
-    maxSpawnIntervalTicks: 170, // at the threshold
+    risePerTick: 0.055, // ~30s from 0 to 100 — the floor turns hostile faster
+    spawnThreshold: 10,
+    minSpawnIntervalTicks: 12, // at heat 100: a guard every 0.2s
+    maxSpawnIntervalTicks: 120, // at the threshold
   },
   machines: {
     count: 12,

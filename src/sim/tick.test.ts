@@ -96,6 +96,12 @@ describe('tick: weapon', () => {
     expect(s.projectiles.length).toBe(0)
   })
 
+  it('firing emits a shot event', () => {
+    const s = withEnemy(200, 0)
+    tick(s, noInput, createRng(4))
+    expect(s.events.some((e) => e.kind === 'shot')).toBe(true)
+  })
+
   it('projectiles move and expire after ttl', () => {
     const s = withEnemy(10_000, 0) // far away: projectile will never reach it
     s.spawnTimer = 100_000 // suppress ambient spawns
@@ -243,7 +249,7 @@ describe('tick: heat and guards', () => {
   it('no guards spawn below the heat threshold', () => {
     const s = createInitialState()
     const rng = createRng(41)
-    for (let i = 0; i < 200; i++) tick(s, noInput, rng) // heat reaches ~8 — below threshold 10
+    for (let i = 0; i < 150; i++) tick(s, noInput, rng) // heat reaches ~8.25 — below threshold 10
     expect(s.enemies.length).toBe(0)
   })
 

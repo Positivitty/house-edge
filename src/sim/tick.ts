@@ -121,6 +121,7 @@ function fireWeapon(state: SimState): void {
     ttl: CONFIG.weapon.projectileTtl,
     alive: true,
   })
+  state.events.push({ kind: 'shot', pos: { x: p.pos.x, y: p.pos.y } })
   p.fireCooldown = p.weapon.cooldownTicks
 }
 

@@ -98,6 +98,7 @@ export type SimEvent =
   | { kind: 'kill'; pos: Vec2; chips: number }
   | { kind: 'playerHit'; pos: Vec2 }
   | { kind: 'luckySave'; pos: Vec2 }
+  | { kind: 'shot'; pos: Vec2 }
   | { kind: 'alarm' }
   | { kind: 'victory' }
 
