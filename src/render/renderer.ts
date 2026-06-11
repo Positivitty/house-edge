@@ -1,7 +1,12 @@
 import { Application, Container, Graphics, Text } from 'pixi.js'
 import { CONFIG } from '../sim/config'
 import { upgradeById } from '../content/upgrades'
-import type { Rarity, SimState } from '../sim/types'
+import type { Rarity, SimState, SlotSymbol } from '../sim/types'
+
+const SYMBOL_GLYPHS: Record<SlotSymbol, string> = {
+  clover: '🍀', cherry: '🍒', seven: '7️⃣', bust: '💀', blank: '▫️',
+}
+const SPIN_FLICKER = ['🍀', '🍒', '7️⃣', '▫️']
 
 // Neon-on-felt palette (spec: procedural casino look)
 const COLORS = {
@@ -33,6 +38,11 @@ export class Renderer {
   private statusText!: Text
   private draftUI: Container | null = null
   private shownDraftVersion = -1
+  private slotUI: Container | null = null
+  private shownSlotVersion = -1
+  private reelTexts: Text[] = []
+  private reelRevealFrame = 0
+  private lastSlotReels: SlotSymbol[] | null = null
   private popups: { text: Text; ttl: number }[] = []
   // Events are emitted once per sim tick; draws happen once per frame (potentially
   // multiple frames per tick at 144 Hz, and zero new ticks once gameOver). Track
@@ -139,6 +149,7 @@ export class Renderer {
 
     this.drawPopups(state)
     this.syncDraft(state)
+    this.syncSlot(state)
   }
 
   private drawPopups(state: SimState): void {
@@ -242,5 +253,104 @@ export class Renderer {
     })
     t.anchor.set(0.5)
     return t
+  }
+
+  // Slot overlay rebuilds only when the session changes (version), never per frame.
+  // Reel reveal is renderer-local presentation: the sim already resolved the outcome.
+  private syncSlot(state: SimState): void {
+    const want = state.phase === 'slot' && state.slot ? state.slot.version : -1
+    if (want === this.shownSlotVersion && (want >= 0) === !!this.slotUI) {
+      this.animateReels()
+      return
+    }
+    this.shownSlotVersion = want
+    if (this.slotUI) {
+      this.slotUI.destroy({ children: true })
+      this.slotUI = null
+      this.reelTexts = []
+      this.lastSlotReels = null
+    }
+    if (state.phase !== 'slot' || !state.slot) return
+
+    const slot = state.slot
+    const machine = state.machines.find((m) => m.id === slot.machineId)
+    const ui = new Container()
+    const cx = CONFIG.screen.w / 2
+
+    ui.addChild(
+      new Graphics().rect(0, 0, CONFIG.screen.w, CONFIG.screen.h).fill({ color: 0x000000, alpha: 0.78 }),
+    )
+    ui.addChild(
+      new Graphics()
+        .roundRect(cx - 260, 120, 520, 420, 18)
+        .fill(0x12100a)
+        .stroke({ width: 3, color: COLORS.machineWarm }),
+    )
+
+    const title = this.uiText('🎰 LUCKY DEVIL DELUXE', 24, COLORS.machineWarm)
+    title.position.set(cx, 160)
+    ui.addChild(title)
+
+    this.reelTexts = [0, 1, 2].map((i) => {
+      const t = this.uiText('▫️', 56, COLORS.hud)
+      t.position.set(cx - 120 + i * 120, 260)
+      ui.addChild(t)
+      return t
+    })
+    this.reelRevealFrame = 0
+    this.lastSlotReels = slot.reels
+
+    const stake = CONFIG.slot.stakes[slot.stakeIndex]
+    const stakeLine = this.uiText(
+      `◄ STAKE ${stake} ►    pulls left ${machine?.spinsLeft ?? 0}    chips ${state.chips}`,
+      16,
+      COLORS.hud,
+    )
+    stakeLine.position.set(cx, 350)
+    ui.addChild(stakeLine)
+
+    const o = slot.outcome
+    const resultText = !o
+      ? 'SPACE to pull the lever'
+      : o.kind === 'luck' ? `🍀 +${o.amount} LUCK on the line`
+      : o.kind === 'chips' ? `🍒 +${o.amount} CHIPS on the line`
+      : o.kind === 'rideWin' ? `🔥 RODE IT — ${o.amount} on the line`
+      : o.kind === 'rideLoss' ? '💨 gone. the house thanks you'
+      : o.kind === 'bust' ? `💀 BUST — the pit boss noticed (+${o.amount} HEAT)`
+      : 'nothing. SPACE to go again'
+    const result = this.uiText(
+      resultText,
+      18,
+      o && (o.kind === 'bust' || o.kind === 'rideLoss') ? COLORS.heatHigh : COLORS.rarityJackpot,
+    )
+    result.position.set(cx, 410)
+    ui.addChild(result)
+
+    const help = slot.pendingWin
+      ? this.uiText('SPACE ride it (double or nothing)  ·  ENTER cash out', 16, COLORS.hud)
+      : this.uiText('SPACE pull  ·  ◄/► stake  ·  E/ESC stand up', 16, COLORS.hud)
+    help.position.set(cx, 470)
+    ui.addChild(help)
+
+    const heat = this.uiText(`HEAT ${Math.round(state.heat)} — each pull cools the floor`, 14, COLORS.heatLow)
+    heat.position.set(cx, 510)
+    ui.addChild(heat)
+
+    this.app.stage.addChild(ui)
+    this.slotUI = ui
+  }
+
+  private animateReels(): void {
+    if (!this.slotUI) return
+    this.reelRevealFrame++
+    if (!this.lastSlotReels) return // no pull yet: keep placeholders
+    this.lastSlotReels.forEach((sym, i) => {
+      const t = this.reelTexts[i]
+      if (!t) return
+      const revealAt = (i + 1) * 18 // ~0.3s apart at 60fps
+      t.text = this.reelRevealFrame >= revealAt
+        ? SYMBOL_GLYPHS[sym]
+        : SPIN_FLICKER[(this.reelRevealFrame + i) % SPIN_FLICKER.length]
+    })
   }
 }
