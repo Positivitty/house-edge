@@ -34,6 +34,7 @@ export class Renderer {
   private machinesG = new Graphics()
   private floorG = new Graphics()
   private heatG = new Graphics()
+  private heatLabel!: Text
   private hud!: Text
   private statusText!: Text
   private draftUI: Container | null = null
@@ -90,7 +91,12 @@ export class Renderer {
       style: { fill: COLORS.hud, fontFamily: 'monospace', fontSize: 16, fontWeight: 'bold' },
     })
     this.statusText.position.set(12, 34)
-    this.app.stage.addChild(this.hud, this.statusText, this.heatG)
+    this.heatLabel = new Text({
+      text: '',
+      style: { fill: COLORS.hud, fontFamily: 'monospace', fontSize: 12, fontWeight: 'bold' },
+    })
+    this.heatLabel.position.set(CONFIG.screen.w - 260 - 16 + 6, 13)
+    this.app.stage.addChild(this.hud, this.statusText, this.heatG, this.heatLabel)
   }
 
   draw(state: SimState): void {
@@ -132,9 +138,9 @@ export class Renderer {
     // Status line
     const alarmSecs = Math.ceil(state.alarmTicksLeft / CONFIG.tickRate)
     this.statusText.text = state.gameOver
-      ? '— BUSTED. refresh to re-buy —'
+      ? '— BUSTED. press R to re-buy —'
       : state.victory
-        ? '🏆 YOU BEAT THE HOUSE (endless mode)'
+        ? '🏆 YOU BEAT THE HOUSE (endless · R restarts)'
         : state.alarm
           ? `🚨 ALARM — SURVIVE ${alarmSecs}s`
           : 'HUNTED — find a machine (E to play)'
@@ -146,6 +152,7 @@ export class Renderer {
     this.heatG
       .rect(CONFIG.screen.w - hw - 16, 14, (hw * state.heat) / 100, 14)
       .fill(state.heat > 60 ? COLORS.heatHigh : COLORS.heatLow)
+    this.heatLabel.text = `HEAT ${Math.round(state.heat)}`
 
     this.drawPopups(state)
     this.syncDraft(state)
