@@ -6,6 +6,7 @@ import { applyDraftCommand } from './sim/draft'
 import { applySlotCommand } from './sim/slot'
 import { createInput } from './input'
 import { Renderer } from './render/renderer'
+import { unlockAudio, toggleMute } from './render/audio'
 import type { DraftCommand, SlotCommand } from './sim/types'
 
 async function main() {
@@ -23,6 +24,8 @@ async function main() {
     Digit4: { type: 'reroll', reel: 0 }, Digit5: { type: 'reroll', reel: 1 }, Digit6: { type: 'reroll', reel: 2 },
   }
   window.addEventListener('keydown', (e) => {
+    unlockAudio()
+    if (e.code === 'KeyM') toggleMute()
     if (state.phase === 'draft') {
       const cmd = DRAFT_KEYS[e.code]
       if (cmd) draftQueue.push({ ...cmd })

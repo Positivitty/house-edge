@@ -1,7 +1,8 @@
 import { Application, Container, Graphics, Text } from 'pixi.js'
 import { CONFIG } from '../sim/config'
 import { upgradeById } from '../content/upgrades'
-import type { Rarity, SimState, SlotSymbol } from '../sim/types'
+import type { Rarity, SimState, SlotOutcome, SlotSymbol } from '../sim/types'
+import { play } from './audio'
 
 const SYMBOL_GLYPHS: Record<SlotSymbol, string> = {
   clover: '🍀', cherry: '🍒', seven: '7️⃣', bust: '💀', blank: '▫️',
@@ -44,11 +45,13 @@ export class Renderer {
   private reelTexts: Text[] = []
   private reelRevealFrame = 0
   private lastSlotReels: SlotSymbol[] | null = null
+  private lastSlotOutcome: SlotOutcome | null = null
   private popups: { text: Text; ttl: number }[] = []
   // Events are emitted once per sim tick; draws happen once per frame (potentially
   // multiple frames per tick at 144 Hz, and zero new ticks once gameOver). Track
   // which tick we last consumed so each batch of events is processed exactly once.
   private lastConsumedTick = -1
+  private playedBusted = false
 
   constructor() {
     this.app = new Application()
@@ -154,6 +157,14 @@ export class Renderer {
       .fill(state.heat > 60 ? COLORS.heatHigh : COLORS.heatLow)
     this.heatLabel.text = `HEAT ${Math.round(state.heat)}`
 
+    // Play busted sound once when gameOver first becomes true
+    if (state.gameOver && !this.playedBusted) {
+      play('busted')
+      this.playedBusted = true
+    } else if (!state.gameOver) {
+      this.playedBusted = false
+    }
+
     this.drawPopups(state)
     this.syncDraft(state)
     this.syncSlot(state)
@@ -164,7 +175,9 @@ export class Renderer {
     // popups on high-refresh displays or when the sim is frozen (gameOver).
     if (state.tick !== this.lastConsumedTick) {
       for (const ev of state.events) {
-        if (ev.kind === 'roll') {
+        if (ev.kind === 'shot') {
+          play('shot', 80)
+        } else if (ev.kind === 'roll') {
           const r = ev.result
           const label =
             r.event === 'deathSave'
@@ -172,16 +185,23 @@ export class Renderer {
               : `${r.roll}/${r.chance}${r.success ? '' : ' miss'}`
           this.addPopup(label, ev.pos.x, ev.pos.y, r.success ? 0x9fff8a : 0xff6b6b,
             r.event === 'deathSave' ? 32 : 14)
+          if (r.event === 'hit' && r.success) play('hit')
+          else if (r.event === 'crit' && r.success) play('crit')
         } else if (ev.kind === 'kill') {
           this.addPopup(`+${ev.chips}`, ev.pos.x, ev.pos.y - 16, 0xffd700, 16)
+          play('kill')
+          play('chip')
+        } else if (ev.kind === 'playerHit') {
+          play('playerHit')
+        } else if (ev.kind === 'luckySave') {
+          play('luckySave')
         } else if (ev.kind === 'alarm') {
           this.addPopup('🚨 ALARM 🚨', state.player.pos.x, state.player.pos.y - 60, COLORS.heatHigh, 36)
+          play('alarm')
         } else if (ev.kind === 'victory') {
           this.addPopup('🏆 BANK BROKEN', state.player.pos.x, state.player.pos.y - 60, COLORS.rarityJackpot, 36)
+          play('victory')
         }
-        // 'playerHit' and 'luckySave' events are intentionally not rendered here —
-        // deferred to the juice pass in a later milestone; the deathSave 'roll' event
-        // already produces the LUCKY!/BUST popup above.
       }
       this.lastConsumedTick = state.tick
     }
@@ -210,12 +230,22 @@ export class Renderer {
   private syncDraft(state: SimState): void {
     const want = state.phase === 'draft' && state.draft ? state.draft.version : -1
     if (want === this.shownDraftVersion && (want >= 0) === !!this.draftUI) return
+    const prevShownVersion = this.shownDraftVersion
     this.shownDraftVersion = want
     if (this.draftUI) {
       this.draftUI.destroy({ children: true })
       this.draftUI = null
     }
     if (state.phase !== 'draft' || !state.draft) return
+
+    // Play jackpot fanfare + open sound only on initial draft open (no-draft → draft).
+    // On reroll rebuilds (version increments while already in draft), play reelTick instead.
+    if (prevShownVersion === -1) {
+      play('jackpot')
+      play('draftOpen')
+    } else {
+      play('reelTick')
+    }
 
     const ui = new Container()
     ui.addChild(
@@ -278,7 +308,10 @@ export class Renderer {
       this.reelTexts = []
       this.lastSlotReels = null
     }
-    if (state.phase !== 'slot' || !state.slot) return
+    if (state.phase !== 'slot' || !state.slot) {
+      this.lastSlotOutcome = null
+      return
+    }
 
     const slot = state.slot
     const machine = state.machines.find((m) => m.id === slot.machineId)
@@ -308,6 +341,23 @@ export class Renderer {
     this.lastSlotReels = slot.reels
     // only a fresh pull (new reels array) animates; stake/ride/cash rebuilds show instantly
     this.reelRevealFrame = slot.reels !== null && slot.reels === prevReels ? 999 : 0
+
+    // Slot sounds keyed to what changed in this rebuild
+    const freshPull = this.reelRevealFrame === 0 && slot.reels !== null
+    if (freshPull) play('lever')
+    const outcome = slot.outcome
+    if (outcome) {
+      if (outcome.kind === 'luck' || outcome.kind === 'chips') play('win')
+      else if (outcome.kind === 'bust') play('bust')
+      else if (outcome.kind === 'rideWin') play('rideDrum')
+      else if (outcome.kind === 'rideLoss') play('bust', 60)
+      // jackpot is unreachable here (slot closes, draft opens) — handled in syncDraft
+    } else if (this.lastSlotOutcome !== null && !freshPull) {
+      // Invariant: slot outcome transitions non-null → null only on an explicit cash-out.
+      // previous outcome was non-null and new outcome is null = genuine cash-out
+      play('cash')
+    }
+    this.lastSlotOutcome = outcome
 
     const stake = CONFIG.slot.stakes[slot.stakeIndex]
     const stakeLine = this.uiText(
@@ -353,11 +403,16 @@ export class Renderer {
     if (!this.slotUI) return
     this.reelRevealFrame++
     if (!this.lastSlotReels) return // no pull yet: keep placeholders
+    const isFlickering = this.lastSlotReels.some((_, i) => this.reelRevealFrame < (i + 1) * 18)
+    if (isFlickering) play('reelTick', 60)
     this.lastSlotReels.forEach((sym, i) => {
       const t = this.reelTexts[i]
       if (!t) return
       const revealAt = (i + 1) * 18 // ~0.3s apart at 60fps
-      t.text = this.reelRevealFrame >= revealAt
+      const wasFlickering = (this.reelRevealFrame - 1) < revealAt
+      const nowRevealed = this.reelRevealFrame >= revealAt
+      if (wasFlickering && nowRevealed) play('reelLand')
+      t.text = nowRevealed
         ? SYMBOL_GLYPHS[sym]
         : SPIN_FLICKER[(this.reelRevealFrame + i) % SPIN_FLICKER.length]
     })
