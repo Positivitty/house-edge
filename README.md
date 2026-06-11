@@ -8,9 +8,12 @@ rising HOUSE EDGE.
 
 ## Status
 
-Milestone 1 — playable core: movement, enemies, auto-fire, luck-resolved
-combat, death saves. Waves, the slot machine, charms, and hot streaks are
-in progress. Design spec: [docs/superpowers/specs/2026-06-10-house-edge-design.md](docs/superpowers/specs/2026-06-10-house-edge-design.md)
+Milestone 2 — **The Floor**: explore a big casino floor where gambling at slot
+machines builds LUCK and keeps the guards away. Stop gambling and HEAT climbs —
+the floor hunts you. Machines run cold, jackpots deal upgrade drafts, and hitting
+the LUCK target trips the alarm: survive it to break the bank.
+Next: charms, hot streak, guard variety, audio/juice.
+Design spec: [docs/superpowers/specs/2026-06-10-house-edge-design.md](docs/superpowers/specs/2026-06-10-house-edge-design.md)
 
 ## Tech
 
@@ -21,7 +24,9 @@ in progress. Design spec: [docs/superpowers/specs/2026-06-10-house-edge-design.m
 
 ## Controls
 
-WASD / arrow keys to move. Your weapon fires itself — the rolls decide the rest.
+WASD / arrows to move. Stand at a gold slot machine to gamble (auto-spins —
+costs chips, builds LUCK, keeps guards off you). Gray machines are cold.
+Draft: 1/2/3 takes an upgrade, 4/5/6 rerolls that reel.
 
 ## Dev
 
