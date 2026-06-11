@@ -53,6 +53,7 @@ async function main() {
   const TICK_MS = 1000 / CONFIG.tickRate
   let acc = 0
   let last = performance.now()
+  let hitStopLeft = 0
 
   renderer.app.ticker.add(() => {
     while (slotQueue.length > 0) applySlotCommand(state, slotQueue.shift()!, rng)
@@ -60,6 +61,12 @@ async function main() {
     const now = performance.now()
     acc += Math.min(now - last, 250) // clamp huge tab-switch deltas
     last = now
+
+    // stop was set by the PREVIOUS frame's draw, so the freeze starts one frame after the kill — intentional, don't reorder.
+    const stop = renderer.consumeHitStop()
+    if (stop > 0) { acc = 0; hitStopLeft = stop }
+    if (hitStopLeft > 0) { hitStopLeft--; renderer.draw(state); return }
+
     while (acc >= TICK_MS) {
       tick(state, input, rng)
       acc -= TICK_MS

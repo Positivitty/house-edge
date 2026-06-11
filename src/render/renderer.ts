@@ -52,6 +52,13 @@ export class Renderer {
   // which tick we last consumed so each batch of events is processed exactly once.
   private lastConsumedTick = -1
   private playedBusted = false
+  // Impact effects
+  private shake = 0
+  private flash = 0
+  private flashOverlayWhite!: Graphics
+  private flashOverlayGold!: Graphics
+  private flashIsGold = false
+  private hitStopFrames = 0
 
   constructor() {
     this.app = new Application()
@@ -82,6 +89,21 @@ export class Renderer {
     this.world.addChild(this.floorG, border, this.machinesG, this.enemiesG, this.projectilesG, this.playerG)
     this.app.stage.addChild(this.world)
 
+    // Fullscreen damage flash overlays (stage-level, above world, behind HUD overlays)
+    this.flashOverlayWhite = new Graphics()
+      .rect(0, 0, CONFIG.screen.w, CONFIG.screen.h)
+      .fill({ color: 0xffffff, alpha: 1 })
+    this.flashOverlayWhite.alpha = 0
+    this.flashOverlayWhite.eventMode = 'none'
+    this.app.stage.addChild(this.flashOverlayWhite)
+
+    this.flashOverlayGold = new Graphics()
+      .rect(0, 0, CONFIG.screen.w, CONFIG.screen.h)
+      .fill({ color: 0xffd700, alpha: 1 })
+    this.flashOverlayGold.alpha = 0
+    this.flashOverlayGold.eventMode = 'none'
+    this.app.stage.addChild(this.flashOverlayGold)
+
     this.hud = new Text({
       text: '',
       style: { fill: COLORS.hud, fontFamily: 'monospace', fontSize: 18 },
@@ -102,11 +124,42 @@ export class Renderer {
     this.app.stage.addChild(this.hud, this.statusText, this.heatG, this.heatLabel)
   }
 
+  addShake(n: number): void {
+    this.shake = Math.min(this.shake + n, 24)
+  }
+
+  consumeHitStop(): number {
+    const frames = this.hitStopFrames
+    this.hitStopFrames = 0
+    return frames
+  }
+
   draw(state: SimState): void {
     // Camera follows the player, clamped to world bounds
-    const camX = Math.min(Math.max(state.player.pos.x - CONFIG.screen.w / 2, 0), CONFIG.world.w - CONFIG.screen.w)
-    const camY = Math.min(Math.max(state.player.pos.y - CONFIG.screen.h / 2, 0), CONFIG.world.h - CONFIG.screen.h)
+    let camX = Math.min(Math.max(state.player.pos.x - CONFIG.screen.w / 2, 0), CONFIG.world.w - CONFIG.screen.w)
+    let camY = Math.min(Math.max(state.player.pos.y - CONFIG.screen.h / 2, 0), CONFIG.world.h - CONFIG.screen.h)
+    if (this.shake > 0.1) {
+      camX += (Math.random() - 0.5) * this.shake
+      camY += (Math.random() - 0.5) * this.shake
+      this.shake *= 0.88
+    } else {
+      this.shake = 0
+    }
     this.world.position.set(-camX, -camY)
+
+    // Flash overlay: apply to the active overlay and decay
+    if (this.flashIsGold) {
+      this.flashOverlayGold.alpha = this.flash
+      this.flashOverlayWhite.alpha = 0
+    } else {
+      this.flashOverlayWhite.alpha = this.flash
+      this.flashOverlayGold.alpha = 0
+    }
+    if (this.flash > 0.01) {
+      this.flash *= 0.85
+    } else {
+      this.flash = 0
+    }
 
     const p = state.player
     this.playerG
@@ -186,18 +239,27 @@ export class Renderer {
           this.addPopup(label, ev.pos.x, ev.pos.y, r.success ? 0x9fff8a : 0xff6b6b,
             r.event === 'deathSave' ? 32 : 14)
           if (r.event === 'hit' && r.success) play('hit')
-          else if (r.event === 'crit' && r.success) play('crit')
+          else if (r.event === 'crit' && r.success) { play('crit'); this.addShake(6) }
         } else if (ev.kind === 'kill') {
           this.addPopup(`+${ev.chips}`, ev.pos.x, ev.pos.y - 16, 0xffd700, 16)
           play('kill')
           play('chip')
+          this.addShake(3)
+          this.hitStopFrames = Math.max(this.hitStopFrames, 3)
         } else if (ev.kind === 'playerHit') {
           play('playerHit')
+          this.addShake(8)
+          this.flash = 0.35
+          this.flashIsGold = false
         } else if (ev.kind === 'luckySave') {
           play('luckySave')
+          this.addShake(14)
+          this.flash = 0.6
+          this.flashIsGold = true
         } else if (ev.kind === 'alarm') {
           this.addPopup('🚨 ALARM 🚨', state.player.pos.x, state.player.pos.y - 60, COLORS.heatHigh, 36)
           play('alarm')
+          this.addShake(20)
         } else if (ev.kind === 'victory') {
           this.addPopup('🏆 BANK BROKEN', state.player.pos.x, state.player.pos.y - 60, COLORS.rarityJackpot, 36)
           play('victory')
@@ -346,13 +408,14 @@ export class Renderer {
     const freshPull = this.reelRevealFrame === 0 && slot.reels !== null
     if (freshPull) play('lever')
     const outcome = slot.outcome
-    if (outcome) {
+    const freshOutcome = outcome !== this.lastSlotOutcome
+    if (outcome && freshOutcome) {
       if (outcome.kind === 'luck' || outcome.kind === 'chips') play('win')
-      else if (outcome.kind === 'bust') play('bust')
+      else if (outcome.kind === 'bust') { play('bust'); this.addShake(10) }
       else if (outcome.kind === 'rideWin') play('rideDrum')
       else if (outcome.kind === 'rideLoss') play('bust', 60)
       // jackpot is unreachable here (slot closes, draft opens) — handled in syncDraft
-    } else if (this.lastSlotOutcome !== null && !freshPull) {
+    } else if (!outcome && this.lastSlotOutcome !== null && !freshPull) {
       // Invariant: slot outcome transitions non-null → null only on an explicit cash-out.
       // previous outcome was non-null and new outcome is null = genuine cash-out
       play('cash')
