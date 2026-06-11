@@ -8,6 +8,7 @@ const SYMBOL_GLYPHS: Record<SlotSymbol, string> = {
   clover: '🍀', cherry: '🍒', seven: '7️⃣', bust: '💀', blank: '▫️',
 }
 const SPIN_FLICKER = ['🍀', '🍒', '7️⃣', '▫️']
+const SCREEN_COLORS = [0xff9900, 0xffcc00, 0xff6600, 0xffaa33]
 
 // Neon-on-felt palette (spec: procedural casino look)
 const COLORS = {
@@ -52,6 +53,7 @@ export class Renderer {
   // which tick we last consumed so each batch of events is processed exactly once.
   private lastConsumedTick = -1
   private playedBusted = false
+  private lastPlayerPos: { x: number; y: number } = { x: -1, y: -1 }
   // Impact effects
   private shake = 0
   private flash = 0
@@ -164,15 +166,52 @@ export class Renderer {
     }
 
     const p = state.player
+    // Detect movement for chip-player tilt wobble
+    const playerMoving =
+      p.pos.x !== this.lastPlayerPos.x || p.pos.y !== this.lastPlayerPos.y
+    this.lastPlayerPos.x = p.pos.x
+    this.lastPlayerPos.y = p.pos.y
+
+    // Position playerG at player world coords so local draws are centred at (0,0)
+    // This lets us rotate playerG around the player centre cleanly.
+    this.playerG.position.set(p.pos.x, p.pos.y)
+    this.playerG.rotation = playerMoving
+      ? Math.sin(state.tick * 0.2) * 0.06
+      : 0
+    const pr = p.radius
+    // Casino chip: gold outer circle, inner ring, 4 edge notches
     this.playerG
       .clear()
-      .circle(p.pos.x, p.pos.y, p.radius)
+      .circle(0, 0, pr)
       .fill(COLORS.player)
+      .circle(0, 0, pr * 0.65)
+      .stroke({ width: 2, color: 0xb8860b })
+    // 4 edge notches (small dark circles at N/E/S/W)
+    for (let n = 0; n < 4; n++) {
+      const angle = (n * Math.PI) / 2
+      const nx = Math.cos(angle) * (pr - 3)
+      const ny = Math.sin(angle) * (pr - 3)
+      this.playerG.circle(nx, ny, 3).fill(0x8b6914)
+    }
     this.playerG.alpha = p.iframes > 0 ? 0.5 : 1
 
+    // Guards: casino muscle — dark suit, white shirt triangle, red tie, pale head
     this.enemiesG.clear()
     for (const e of state.enemies) {
-      this.enemiesG.circle(e.pos.x, e.pos.y, e.radius).fill(COLORS.enemy)
+      const ex = e.pos.x
+      const ey = e.pos.y
+      const bob = Math.sin((state.tick + e.id * 7) * 0.3) * 1.5
+      const bey = ey + bob
+      // Dark suit body (rounded rect 18×22)
+      this.enemiesG.roundRect(ex - 9, bey - 4, 18, 22, 3).fill(0x1a1a22)
+      // White shirt triangle (small triangle in chest area)
+      this.enemiesG
+        .poly([ex, bey, ex - 4, bey + 8, ex + 4, bey + 8])
+        .fill(0xeeeeee)
+      // Red tie (thin rect)
+      this.enemiesG.rect(ex - 1.5, bey + 1, 3, 10).fill(0xcc2233)
+      // Pale head circle on top
+      this.enemiesG.circle(ex, bey - 8, 7).fill(0xd4b896)
     }
 
     this.projectilesG.clear()
@@ -190,11 +229,34 @@ export class Renderer {
 
     // Machines
     this.machinesG.clear()
-    for (const m of state.machines) {
+    for (let mi = 0; mi < state.machines.length; mi++) {
+      const m = state.machines[mi]!
       const warm = m.spinsLeft > 0
-      this.machinesG
-        .roundRect(m.pos.x - 18, m.pos.y - 22, 36, 44, 6)
-        .fill(warm ? COLORS.machineWarm : COLORS.machineCold)
+      if (warm) {
+        // Pulsing outer glow
+        const glowAlpha = 0.25 + 0.15 * Math.sin(state.tick * 0.05 + m.id)
+        this.machinesG
+          .roundRect(m.pos.x - 22, m.pos.y - 26, 44, 52, 9)
+          .fill({ color: COLORS.machineWarm, alpha: glowAlpha })
+        // Main body
+        this.machinesG
+          .roundRect(m.pos.x - 18, m.pos.y - 22, 36, 44, 6)
+          .fill(COLORS.machineWarm)
+        // Tiny screen rect that flickers color
+        const screenColorIdx = Math.floor(state.tick / 8 + m.id) % SCREEN_COLORS.length
+        this.machinesG
+          .rect(m.pos.x - 9, m.pos.y - 14, 18, 12)
+          .fill(SCREEN_COLORS[screenColorIdx]!)
+      } else {
+        // Cold machine: flat gray body
+        this.machinesG
+          .roundRect(m.pos.x - 18, m.pos.y - 22, 36, 44, 6)
+          .fill(COLORS.machineCold)
+        // "OUT OF ORDER" indicator: dark contrasting horizontal strip
+        this.machinesG
+          .rect(m.pos.x - 18, m.pos.y - 4, 36, 6)
+          .fill({ color: 0x111111, alpha: 0.8 })
+      }
     }
 
     this.hud.text =
