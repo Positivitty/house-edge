@@ -7,7 +7,7 @@ const DT = 1 / CONFIG.tickRate
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v))
 
 export function tick(state: SimState, input: InputState, rng: Rng): SimState {
-  if (state.gameOver || state.phase === 'draft') return state
+  if (state.gameOver || state.phase !== 'combat') return state
   state.events.length = 0
   state.tick++
 
