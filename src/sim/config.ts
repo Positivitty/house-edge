@@ -32,8 +32,7 @@ export const CONFIG = {
     touchPerMinute: 1.2, // +1.2 touch damage per minute (floored)
   },
   heat: {
-    risePerTick: 0.04, // ~42s from 0 to 100 while not gambling
-    drainPerTick: 0.2, // 5x faster drain while gambling
+    risePerTick: 0.04, // heat always rises on the open floor; slot pulls drain it
     spawnThreshold: 10, // below this: no spawns (grace period)
     minSpawnIntervalTicks: 25, // at heat 100
     maxSpawnIntervalTicks: 170, // at the threshold
@@ -43,6 +42,18 @@ export const CONFIG = {
     radius: 26, // visual size
     interactRadius: 70, // stand this close to sit down (E)
     spinsPerMachine: 10, // pulls before it runs cold, permanently
+  },
+  slot: {
+    stakes: [3, 10, 25], // chips per pull
+    luckPayout: [3, 8, 18], // luck win, by stake tier
+    chipsPayoutMult: 3, // chips win pays stake * this
+    winBonus: [0, 5, 10], // added to luck for the win roll, by stake tier
+    heatDrainPerPull: [6, 12, 22], // the house loves a whale
+    chipsWinChance: 0.35, // share of non-jackpot wins that pay chips
+    bustChance: 0.08, // share of losses where the pit boss notices you
+    bustHeat: 15,
+    jackpotLuck: [8, 12, 20], // immediate luck on jackpot, by stake tier
+    rideEdge: 10, // extra house edge on double-or-nothing rolls
   },
   draft: { rerollCost: 5 },
   win: { luckTarget: 100, alarmTicks: 2700 }, // survive 45s of alarm to beat the house

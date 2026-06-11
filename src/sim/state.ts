@@ -65,6 +65,7 @@ export function createInitialState(rng: Rng = createRng(1)): SimState {
     gameOver: false,
     phase: 'combat',
     draft: null,
+    slot: null,
     machines: layoutMachines(rng),
     heat: 0,
     alarm: false,

@@ -42,7 +42,34 @@ export interface Projectile {
   alive: boolean
 }
 
-export type Phase = 'combat' | 'draft'
+export type Phase = 'combat' | 'draft' | 'slot'
+
+export type SlotSymbol = 'clover' | 'cherry' | 'seven' | 'bust' | 'blank'
+
+export type SlotOutcomeKind =
+  | 'luck' | 'chips' | 'jackpot' | 'bust' | 'nothing' | 'rideWin' | 'rideLoss'
+
+export interface SlotOutcome {
+  kind: SlotOutcomeKind
+  amount: number
+}
+
+export interface SlotState {
+  machineId: number
+  stakeIndex: number // index into CONFIG.slot.stakes
+  reels: SlotSymbol[] | null // last landed symbols (null before first pull)
+  outcome: SlotOutcome | null
+  pendingWin: { kind: 'luck' | 'chips'; amount: number } | null // ride-or-cash
+  version: number // bumped on every change so the renderer rebuilds
+}
+
+export type SlotCommand =
+  | { type: 'enter' }
+  | { type: 'exit' }
+  | { type: 'stake'; dir: -1 | 1 }
+  | { type: 'pull' }
+  | { type: 'ride' }
+  | { type: 'cash' }
 
 export type Rarity = 'common' | 'rare' | 'jackpot'
 
@@ -94,6 +121,7 @@ export interface SimState {
   gameOver: boolean
   phase: Phase
   draft: DraftState | null
+  slot: SlotState | null
   machines: Machine[]
   heat: number // 0..100
   alarm: boolean
