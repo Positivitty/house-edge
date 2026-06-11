@@ -1,9 +1,15 @@
-# HOUSE EDGE — Design Spec (v2)
+# HOUSE EDGE — Design Spec (v3)
 
-**Date:** 2026-06-10 (v2 same day — post-M1-playtest pivot)
+**Date:** 2026-06-10 (v3 on 2026-06-11 — playable slots)
 **Deadline:** 2026-06-22 (hard — last day of Claude access; final deploy must land by end of June 21)
-**Status:** v2 approved by Noah 2026-06-10
+**Status:** v3 approved by Noah 2026-06-11
 
+> **v3 changelog:** Gambling becomes a playable minigame. Auto-spinning by proximity is
+> replaced by an interactive slot: press E at a machine, the world pauses, and the player
+> bets stakes, pulls the lever, and rides or cashes wins. HEAT now drains **per pull**
+> (scaled by stake) instead of per tick, and guard retreat keys off low HEAT instead of
+> "currently gambling". Everything else from v2 stands.
+>
 > **v2 changelog:** After playtesting Milestone 1, the discrete-wave + between-wave-shop
 > structure was replaced by **The Floor**: a large explorable casino floor where gambling
 > at slot machines is the source of both luck and safety, and stopping is what summons
@@ -55,22 +61,34 @@ roll progressively harder. The run is an arms race between your gambling and the
 
 ## HEAT
 
-- Visible meter, 0–100. Rises every tick you are not gambling; drains (faster) while gambling.
-- Below a small threshold: no spawns (grace at run start and after long gambling sessions).
-- Above it: guard spawn interval scales with HEAT (hotter = faster).
-- While gambling: no spawns, and live guards retreat away from you (you can still shoot
-  them in the back — robbing the house's muscle is sanctioned behavior).
+- Visible meter (with the number), 0–100. Rises every tick on the open floor.
+- **Drains per slot pull, scaled by stake** — spending money is what calms the house.
+- Below a small threshold: no spawns, and live guards retreat away from you (you're a
+  customer in good standing; shooting them in the back remains sanctioned behavior).
+- Above it: guard spawn interval scales with HEAT (hotter = faster). On-screen guard
+  count is capped so swarms stay survivable-by-skill.
 - During the alarm: HEAT is pinned at 100.
 
-## Slot machines
+## Slot machines — the playable slot
 
-- ~12 per floor, deterministic seeded placement, one guaranteed near spawn.
-- Auto-play while standing in range with enough chips: each spin costs chips, rolls 'reel':
-  win = +luck (bigger), loss = +luck (smaller — even losing teaches you the machine);
-  a second successful roll on a win = **jackpot**: big luck bonus + an upgrade draft.
-- Each machine has a fixed number of spins, then runs cold permanently (forces traversal).
-- Upgrade draft: sim freezes ('draft' phase), 3 luck-tilted reels (common/rare/jackpot
-  rarities), pick one free (1/2/3), reroll a reel for chips (4/5/6).
+- ~12 per floor, deterministic seeded placement, one guaranteed near spawn. Each machine
+  has a fixed number of pulls, then runs cold permanently (forces traversal).
+- **Press E at a warm machine to sit down. The world pauses** (the house pauses the floor
+  for a paying customer). E/ESC stands you up, straight back into the action.
+- **Stakes:** bet 3 / 10 / 25 chips (←/→ selects). Bigger stakes pay more luck, add a
+  bonus to the win roll, and drain more HEAT per pull.
+- **SPACE pulls the lever.** Three reels land one by one. Outcomes (all resolved through
+  the one luck resolver; symbols are presentation):
+  - 🍀🍀🍀 **LUCK win** — luck payout scaled by stake (offered as a ride-or-cash win)
+  - 🍒🍒🍒 **CHIPS win** — chips back, multiple of stake (ride-or-cash)
+  - 7️⃣7️⃣7️⃣ **JACKPOT** — big luck immediately + the upgrade draft opens
+  - 💀 **BUST** (rare) — the pit boss noticed you: HEAT spikes
+  - junk — stake lost, nothing happens
+- **Double-or-nothing:** any ride-or-cash win offers RIDE (SPACE — double it at slightly
+  house-favored odds, repeatable) vs CASH (ENTER — bank it). Standing up auto-cashes.
+- Each pull: costs the stake, burns one of the machine's pulls, drains HEAT by stake tier.
+- Upgrade draft: unchanged — sim stays frozen ('draft' phase), 3 luck-tilted reels,
+  pick one free (1/2/3), reroll a reel for chips (4/5/6).
 
 ## Architecture (unchanged foundations, new world)
 
@@ -107,14 +125,15 @@ Noah playtests daily — all tunables live in `src/sim/config.ts` so feel fixes 
 | Days (June) | Goal |
 |---|---|
 | 10 | ✅ M1 shipped: luck engine, combat, death saves, determinism, live deploy. |
-| 11–13 | **M2 — The Floor:** big world + camera, slot machines + gambling, HEAT + guard pressure, upgrade drafts, break-the-bank alarm + victory. |
-| 14–16 | M3 — depth: charms as RollModifiers, hot-streak multiplier, guard variety, Pit Boss. |
-| 17–18 | M4 — juice: ZzFX audio, screen shake/hit-stop, death receipt, daily seed. |
+| 11 | ✅ M2 shipped — The Floor: big world + camera, machines, HEAT + guards, drafts, alarm + victory. |
+| 11–13 | **M3 — The Playable Slot:** E-to-sit slot minigame (stakes, pulls, ride-or-cash, bust), heat-per-pull economy, guard cap, R-restart, numeric heat. |
+| 14–16 | M4 — depth: charms as RollModifiers, hot-streak multiplier, guard variety, Pit Boss. |
+| 17–18 | M5 — juice: ZzFX audio, screen shake/hit-stop, reel animations+, death receipt, daily seed. |
 | 19–20 | Balance passes from playtests; performance (pooling) if needed. |
 | 21 | Buffer: bugs, README/GIFs, final deploy, resume blurb. |
 
-Cut order if life eats days: M4 extras → guard variety → hot streak → charm count.
-The Floor loop (gamble/heat/fight) and polish on it are never cut.
+Cut order if life eats days: M5 extras → guard variety → hot streak → charm count.
+The Floor loop (slot/heat/fight) and polish on it are never cut.
 
 ## Repo & deploy
 
