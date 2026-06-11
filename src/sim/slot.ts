@@ -1,6 +1,8 @@
 import { CONFIG } from './config'
+import { resolve } from './resolve'
+import { openDraft } from './draft'
 import type { Rng } from './rng'
-import type { SimState, SlotCommand } from './types'
+import type { SimState, SlotCommand, SlotOutcome, SlotSymbol } from './types'
 
 export function applySlotCommand(state: SimState, cmd: SlotCommand, rng: Rng): void {
   if (cmd.type === 'enter') {
@@ -18,7 +20,18 @@ export function applySlotCommand(state: SimState, cmd: SlotCommand, rng: Rng): v
     state.slot.version++
     return
   }
-  void rng // pull/ride/cash land in the next task
+  if (cmd.type === 'pull') {
+    pull(state, rng)
+    return
+  }
+  if (cmd.type === 'ride') {
+    ride(state, rng)
+    return
+  }
+  if (cmd.type === 'cash') {
+    cash(state)
+    return
+  }
 }
 
 function tryEnter(state: SimState): void {
@@ -39,6 +52,94 @@ function tryEnter(state: SimState): void {
     }
     return
   }
+}
+
+const PRESENT_POOL: SlotSymbol[] = ['clover', 'cherry', 'seven']
+
+function pull(state: SimState, rng: Rng): void {
+  const slot = state.slot!
+  if (slot.pendingWin) return // decide first
+  const machine = state.machines.find((m) => m.id === slot.machineId)
+  if (!machine || machine.spinsLeft <= 0) return
+  const stake = CONFIG.slot.stakes[slot.stakeIndex]
+  if (state.chips < stake) return
+
+  state.chips -= stake
+  machine.spinsLeft--
+  state.heat = Math.max(0, state.heat - CONFIG.slot.heatDrainPerPull[slot.stakeIndex])
+
+  const luck = state.player.luck + CONFIG.slot.winBonus[slot.stakeIndex]
+  const win = resolve('reel', luck, state.houseEdge, rng)
+  let outcome: SlotOutcome
+
+  if (win.success) {
+    if (resolve('reel', luck, state.houseEdge, rng).success) {
+      outcome = { kind: 'jackpot', amount: CONFIG.slot.jackpotLuck[slot.stakeIndex] }
+    } else if (rng.next() < CONFIG.slot.chipsWinChance) {
+      outcome = { kind: 'chips', amount: stake * CONFIG.slot.chipsPayoutMult }
+      slot.pendingWin = { kind: 'chips', amount: outcome.amount }
+    } else {
+      outcome = { kind: 'luck', amount: CONFIG.slot.luckPayout[slot.stakeIndex] }
+      slot.pendingWin = { kind: 'luck', amount: outcome.amount }
+    }
+  } else if (rng.next() < CONFIG.slot.bustChance) {
+    outcome = { kind: 'bust', amount: CONFIG.slot.bustHeat }
+    state.heat = Math.min(100, state.heat + CONFIG.slot.bustHeat)
+  } else {
+    outcome = { kind: 'nothing', amount: 0 }
+  }
+
+  slot.outcome = outcome
+  slot.reels = symbolsFor(outcome, rng)
+  slot.version++
+
+  if (outcome.kind === 'jackpot') {
+    state.player.luck += outcome.amount
+    state.slot = null
+    openDraft(state, rng) // phase: 'slot' -> 'draft'
+  }
+}
+
+function symbolsFor(outcome: SlotOutcome, rng: Rng): SlotSymbol[] {
+  switch (outcome.kind) {
+    case 'jackpot':
+      return ['seven', 'seven', 'seven']
+    case 'luck':
+      return ['clover', 'clover', 'clover']
+    case 'chips':
+      return ['cherry', 'cherry', 'cherry']
+    case 'bust':
+      return ['bust', PRESENT_POOL[rng.int(0, 2)], 'blank']
+    default:
+      // near-misses are good slot psychology; the blank guarantees no triple
+      return [PRESENT_POOL[rng.int(0, 2)], PRESENT_POOL[rng.int(0, 2)], 'blank']
+  }
+}
+
+function ride(state: SimState, rng: Rng): void {
+  const slot = state.slot!
+  const w = slot.pendingWin
+  if (!w) return
+  const r = resolve('reel', state.player.luck, state.houseEdge + CONFIG.slot.rideEdge, rng)
+  if (r.success) {
+    w.amount *= 2
+    slot.outcome = { kind: 'rideWin', amount: w.amount }
+  } else {
+    slot.pendingWin = null
+    slot.outcome = { kind: 'rideLoss', amount: 0 }
+  }
+  slot.version++
+}
+
+function cash(state: SimState): void {
+  const slot = state.slot!
+  const w = slot.pendingWin
+  if (!w) return
+  if (w.kind === 'luck') state.player.luck += w.amount
+  else state.chips += w.amount
+  slot.pendingWin = null
+  slot.outcome = null
+  slot.version++
 }
 
 export function closeSlot(state: SimState): void {
