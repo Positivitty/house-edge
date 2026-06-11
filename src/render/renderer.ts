@@ -264,6 +264,7 @@ export class Renderer {
       return
     }
     this.shownSlotVersion = want
+    const prevReels = this.lastSlotReels
     if (this.slotUI) {
       this.slotUI.destroy({ children: true })
       this.slotUI = null
@@ -297,8 +298,9 @@ export class Renderer {
       ui.addChild(t)
       return t
     })
-    this.reelRevealFrame = 0
     this.lastSlotReels = slot.reels
+    // only a fresh pull (new reels array) animates; stake/ride/cash rebuilds show instantly
+    this.reelRevealFrame = slot.reels !== null && slot.reels === prevReels ? 999 : 0
 
     const stake = CONFIG.slot.stakes[slot.stakeIndex]
     const stakeLine = this.uiText(
