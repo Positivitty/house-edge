@@ -8,11 +8,7 @@ rising HOUSE EDGE.
 
 ## Status
 
-Milestone 3 — **The Playable Slot**: walk up to a machine and press E — the
-world pauses while you bet stakes, pull the lever, and ride or cash your wins.
-Pulls drain HEAT (the house loves a customer); busts spike it. Machines still
-run cold, jackpots still deal upgrade drafts, luck 100 still trips the alarm.
-Next: charms, hot streak, guard variety, audio/juice.
+Milestone 4 — **Make It Feel Good**: ZzFX procedural audio brings combat, slot, and status SFX to life; screen shake, hit-stop, and damage flash punch every collision; chip-scatter particles vacuum into your stack; muzzle flashes and projectile trails slice through the air; identity art gives the world personality (suited guards, a chip-shaped player, glowing machines); and slot drama pulls you in with escalating reel reveals, near-miss suspense, an animated lever, and win celebrations. Zero new mechanics—just the juice.
 Design spec: [docs/superpowers/specs/2026-06-10-house-edge-design.md](docs/superpowers/specs/2026-06-10-house-edge-design.md)
 
 ## Tech
@@ -26,7 +22,7 @@ Design spec: [docs/superpowers/specs/2026-06-10-house-edge-design.md](docs/super
 
 WASD / arrows to move. **E** at a gold machine sits you down (world pauses):
 **◄/►** stake, **SPACE** pull (or ride a win), **ENTER** cash out, **E/ESC** stand up.
-Draft: **1/2/3** takes an upgrade, **4/5/6** rerolls. **R** restarts after a bust.
+Draft: **1/2/3** takes an upgrade, **4/5/6** rerolls. **R** restarts after a bust. **M** mutes.
 
 ## Dev
 
